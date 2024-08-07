@@ -131,12 +131,7 @@ class BreathingAsymmetry:
         Plot the asymmetry score over time.
         """
         # Set plotting style and parameters
-        plt.style.use(["default"])
-        plt.rcParams.update({
-            "ytick.color": "black", "xtick.color": "black", "axes.labelcolor": "black",
-            "axes.edgecolor": "black", "text.usetex": False, "font.family": "serif",
-            "font.sans-serif": "Helvetica"
-        })
+        colors=MeerkatPipelineHelperfunctions.set_plot_params()
 
         # Calculate the asymmetry score
         self.asymmetry_score = 200 * (np.array(self.left_volumes_windowed) - np.array(self.right_volumes_windowed)) / \
@@ -144,7 +139,7 @@ class BreathingAsymmetry:
 
         # Create a plot
         fig, ax = plt.subplots(figsize=(7.4, 4))
-        ax.plot(self.window_timestamps, self.asymmetry_score, color=sns.color_palette("deep")[0])
+        ax.plot(self.window_timestamps, self.asymmetry_score, color=colors[0])
         ax.set(xlabel="Time (s)", ylabel="Asymmetry score (%)", title="Breathing asymmetry")
         # Customize plot appearance
         ax.spines["right"].set_visible(False)

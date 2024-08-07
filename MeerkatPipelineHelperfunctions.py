@@ -4,6 +4,8 @@ from scipy.signal import find_peaks
 import simdkalman
 import scipy
 from sklearn import decomposition
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Camera calibration parameters
 PX = 639.8630981445312
@@ -325,3 +327,18 @@ def coverage_probability(matched_ground_truth_signal, matched_reference_signal, 
 
     cp = count_in / len(matched_reference_signal)
     print("CP", kappa, "%:", cp)
+    
+def set_plot_params():
+    plt.style.use(["default"])
+    params = {
+        "ytick.color": "black",
+        "xtick.color": "black",
+        "axes.labelcolor": "black",
+        "axes.edgecolor": "black",
+        "text.usetex": False,
+        "font.family": "serif",
+        "font.sans-serif": "Helvetica",
+    }
+    colors = sns.color_palette("deep")
+    plt.rcParams.update(params)
+    return colors
