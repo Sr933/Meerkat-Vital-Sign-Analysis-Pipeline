@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 import os
 import shutil
 import csv
@@ -98,6 +97,8 @@ class CalculateFlowVolumeLoop:
             self.ventilator_flow = df[" Flow (l/min)"].to_numpy()
             self.ventilator_time = df["Time (s)"].to_numpy()
             self.ventilator_pressure = df[" Pressure (mbar)"].to_numpy()
+        else:
+            print("No ventilator data")
 
     def write_flow_pressure_intermediate_file(self):
         # Write filtered ventilator flow and pressure data to an intermediate file
@@ -188,19 +189,18 @@ class CalculateFlowVolumeLoop:
 
     def valid_loop(self, breath_flow, breath_volume, flow_crossings):
         # Determine if a given flow volume loop meets physiological criteria
-        if (
-            abs(breath_flow[-1]) < 20
-            and abs(breath_flow[0]) < 20
-            and abs(breath_volume[-1]) < 1
-            and max(np.absolute(breath_volume)) > self.mean - self.std
-            and max(np.absolute(breath_volume)) < self.mean + self.std
-            and flow_crossings < 3
-            and max(np.abs(breath_flow)) < 40
-            and min(breath_volume) < -2
-        ):
-            return True
-        else:
-            return False
+        conditions = (
+            abs(breath_flow[-1]) < 20,
+            abs(breath_flow[0]) < 20,
+            abs(breath_volume[-1]) < 1,
+            self.mean - self.std < max(np.absolute(breath_volume)) < self.mean + self.std,
+            flow_crossings < 3,
+            max(np.abs(breath_flow)) < 40,
+            min(breath_volume) < -2
+        )
+
+        return all(conditions)
+
 
     def camera_loop_calc(self, j):
         # Calculate flow-volume loop from camera data
@@ -230,18 +230,21 @@ class CalculateFlowVolumeLoop:
                 int(self.breath_start[j]) : int(self.breath_end[j])
             ]
         )
-        if breath_time[0] > self.ts1[0] and breath_time[-1] < self.ts1[-1]:
-            flow_crossings = ((breath_flow[:-1] * breath_flow[1:]) < 0).sum()
             
-            # Calculate volume signal for breath thorugh numerical integration
-            for i in range(len(breath_flow) - 1):
-                time_0 = breath_time[i]
-                time_1 = breath_time[i + 1]
-                flow_0 = breath_flow[i]
-                flow_1 = breath_flow[i + 1]
-                breath_volume.append(
-                    0.5 * (time_1 - time_0) * (flow_0 + flow_1)
-                    + breath_volume[i])
+        flow_crossings = ((breath_flow[:-1] * breath_flow[1:]) < 0).sum()
+        
+        # Calculate time differences between consecutive elements
+        time_diff = np.diff(breath_time)
+
+        # Calculate the average flow between consecutive elements
+        avg_flow = 0.5 * (breath_flow[:-1] + breath_flow[1:])
+
+        # Compute the incremental volumes
+        incremental_volume = time_diff * avg_flow
+
+        # Accumulate the incremental volumes to get the total volume at each step
+        breath_volume = np.concatenate(([breath_volume[0]], np.cumsum(incremental_volume) + breath_volume[0]))
+      
         return breath_volume, breath_flow, flow_crossings
 
     def plot_data(self):
@@ -291,6 +294,7 @@ class CalculateFlowVolumeLoop:
     def plot_single_loops(self):
         # Plot parameters
         colors = MeerkatPipelineHelperfunctions.set_plot_params()
+        
         for i in range(len(self.valid_peaks)):
             camera_peak_t = self.ts1[i]
             for j in range(len(self.breath_start)):
@@ -302,8 +306,6 @@ class CalculateFlowVolumeLoop:
 
                     # Define plot parameters
                     self.set_fv_plot_params(ax1)
-
-                    
 
                     breath_volume, breath_flow, flow_crossings = self.camera_loop_calc(j)
                     if self.valid_loop(breath_flow, breath_volume, flow_crossings):
@@ -343,9 +345,21 @@ class CalculateFlowVolumeLoop:
         ax.tick_params(axis="y", labelsize=14)
 
     def return_data(self):
-        return (
-            self.ventilator_loops_flow,
-            self.ventilator_loops_volume,
-            self.camera_loops_flow,
-            self.camera_loops_volume,
-        )
+        """
+        Returns:
+            dict: A dictionary containing the following key-value pairs:
+                - "Ventilator loops flow" (array): Flow data from the ventilator loops.
+                - "Ventilator loops volume" (array): Volume data from the ventilator loops.
+                - "Camera loops flow" (array): Flow data from the camera loops.
+                - "Camera loops volume" (array): Volume data from the camera loops.
+        """
+        
+        # Create a dictionary to store the flow and volume data for both ventilator and camera loops.
+        data = {
+            "Ventilator loops flow": self.ventilator_loops_flow,   # Flow data from ventilator loops.
+            "Ventilator loops volume": self.ventilator_loops_volume, # Volume data from ventilator loops.
+            "Camera loops flow": self.camera_loops_flow,           # Flow data from camera loops.
+            "Camera loops volume": self.camera_loops_volume,       # Volume data from camera loops.
+        }
+        return data
+
