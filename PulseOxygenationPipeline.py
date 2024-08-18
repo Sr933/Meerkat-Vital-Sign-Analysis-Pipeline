@@ -7,13 +7,23 @@ import pandas as pd
 from sklearn import decomposition
 import StatisticalAnalysis
 import sys
-import seaborn as sns
-
 
 class CalculatePulseOxygenation:
-    def __init__(self):
-        self.data_analysis_folder = ""
-        self.intervall_length = 900
+    def __init__(self, data_analysis_folder="", interval_length=900):
+        """
+        Initializes the CalculatePulseOxygenation class with the given parameters.
+
+        Args:
+            data_analysis_folder (str): Path to the folder containing data for analysis.
+            interval_length (int): Length of the interval for processing.
+        """
+        self.data_analysis_folder = data_analysis_folder
+        self.interval_length = interval_length
+
+        # Define the Kalman filter parameters
+        self.process_noise = 0.0001
+        self.measurement_noise = 0.00001
+        self.initial_estimate_error = 10
 
     def run(self):
         # Function to tie all functions in class together
@@ -21,6 +31,8 @@ class CalculatePulseOxygenation:
             self.data_analysis_folder
         )
         self.import_oxygen_saturation_data()
+        self.smooth_signals()
+        self.generate_timestamps()
         self.import_oximeter_spO2()
         self.infrared_oxygenation()
         self.rgb_oxygenation()
@@ -30,56 +42,58 @@ class CalculatePulseOxygenation:
         self.statistical_analysis()
 
     def import_oxygen_saturation_data(self):
-        # Define camera folder
-        camera_folder = repr("\\" + "RGB-D camera video data")
-        camera_folder = self.subject_folder + camera_folder[2:-1]
-        camera_file = os.listdir(camera_folder)[0]
-        camera_file = repr("\\" + camera_file)
-        camera_filepath = camera_folder + camera_file[2:-1]
+        # Define camera filepath
+        camera_folder = os.path.join(self.subject_folder, "RGB-D camera video data")
+        camera_file = os.path.join(camera_folder, os.listdir(camera_folder)[0])
 
-        # Read data from csv
-        df = pd.read_csv(camera_filepath)
-        self.ts1 = np.array(df["Time (s)"])
-        self.red_signal = np.array(df[" Red"])
-        self.green_signal = np.array(df[" Green"])
-        self.blue_signal = np.array(df[" Blue"])
-        self.infrared_signal = np.array(df[" IR"])
+        # Load data from csv file
+        df = pd.read_csv(camera_file)
+        self.ts1 = df["Time (s)"].to_numpy()
+        self.red_signal = df[" Red"].to_numpy()
+        self.green_signal = df[" Green"].to_numpy()
+        self.blue_signal = df[" Blue"].to_numpy()
+        self.infrared_signal = df[" IR"].to_numpy()
 
+    def smooth_signals(self):
         # Calculate average signals
         self.mean_red = np.mean(self.red_signal)
         self.mean_blue = np.mean(self.blue_signal)
         self.mean_green = np.mean(self.green_signal)
+        self.mean_infrared = np.mean(self.infrared_signal)
 
         # Bandpass filter the signals
         self.ac_filter = MeerkatPipelineHelperfunctions.butter_bandpass(
             1, 5, 30, order=7
         )
-        self.filtered_red = sosfiltfilt(self.ac_filter, self.red_signal) + np.mean(
-            self.red_signal
+        self.filtered_red = sosfiltfilt(self.ac_filter, self.red_signal) + self.mean_red
+        self.filtered_blue = (
+            sosfiltfilt(self.ac_filter, self.blue_signal) + self.mean_blue
         )
-        self.filtered_blue = sosfiltfilt(self.ac_filter, self.blue_signal) + np.mean(
-            self.blue_signal
+        self.filtered_green = (
+            sosfiltfilt(self.ac_filter, self.green_signal) + self.mean_green
         )
-        self.filtered_ir = sosfiltfilt(self.ac_filter, self.infrared_signal) + np.mean(
-            self.infrared_signal
-        )
-        self.filtered_green = sosfiltfilt(self.ac_filter, self.green_signal) + np.mean(
-            self.infrared_signal
+        self.filtered_ir = (
+            sosfiltfilt(self.ac_filter, self.infrared_signal) + self.mean_infrared
         )
 
     def import_oximeter_spO2(self):
         # Define pulse oximeter folder
-        oximeter_folder = repr("\\" + "Pulse oximeter oxygen saturation")
-        oximeter_folder = self.subject_folder + oximeter_folder[2:-1]
-        if len(os.listdir(oximeter_folder)) > 0:  # if file exists import data from it
-            oximeter_file = os.listdir(oximeter_folder)[0]
-            oximeter_file = repr("\\" + oximeter_file)
-            oximeter_filepath = oximeter_folder + oximeter_file[2:-1]
-            df = pd.read_csv(oximeter_filepath)
-            self.pulse_oximeter_timestamps = np.array(df["Time (s)"])
-            self.pulse_oximeter_spO2 = np.array(df[" Oxygen saturation (%)"])
+        oximeter_folder = os.path.join(
+            self.subject_folder, "Pulse oximeter oxygen saturation"
+        )
+        if os.listdir(oximeter_folder):  # if file exists import data from it
+            oximeter_file = os.path.join(
+                oximeter_folder, os.listdir(oximeter_folder)[0]
+            )
+
+            df = pd.read_csv(oximeter_file)
+            self.pulse_oximeter_timestamps = df["Time (s)"].to_numpy()
+            self.pulse_oximeter_spO2 = df[" Oxygen saturation (%)"].to_numpy()
             self.pulse_oximeter_spO2 = MeerkatPipelineHelperfunctions.Kalman_filter(
-                self.pulse_oximeter_spO2, 0.0001, 0.00001, 10
+                self.pulse_oximeter_spO2,
+                self.process_noise,
+                self.measurement_noise,
+                self.initial_estimate_error,
             )
         else:
             print("No valid pulse oximeter data")
@@ -104,23 +118,23 @@ class CalculatePulseOxygenation:
         self.spO2_rgb = (
             40 * np.log(self.rr_signal_rgb) + 80
         )  # calibration can be adjusted as needed
-        for i in range(len(self.spO2_rgb)):
-            if self.spO2_rgb[i] > 100:
-                self.spO2_rgb[i] = 100
-            if self.spO2_rgb[i] < 70:
-                self.spO2_rgb[i] = 70
+
+        self.spO2_rgb = self.clamp_spO2(self.spO2_rgb)
         # Smooth using Kalman filter
         self.spO2_rgb = MeerkatPipelineHelperfunctions.Kalman_filter(
-            self.spO2_rgb, 0.0001, 0.00001, 10
+            self.spO2_rgb,
+            self.process_noise,
+            self.measurement_noise,
+            self.initial_estimate_error,
         )
 
     def ycgcr_oxygenation(self):
         # Algorithm after https://www.mdpi.com/1424-8220/21/18/6120
 
         # Normalize data to 0:1 range
-        r_normalized = np.array(self.red_signal) / 255
-        g_normalized = np.array(self.green_signal) / 255
-        b_normalized = np.array(self.blue_signal) / 255
+        r_normalized = self.red_signal / 255
+        g_normalized = self.green_signal / 255
+        b_normalized = self.blue_signal / 255
         # Calculate YCgCr colour space, not Y component not needed for further analysis
         # Y=16+ (65.481 * r_normalized)+(128.533 * g_normalized)+(24.966 * b_normalized)
         Cg = (
@@ -149,22 +163,27 @@ class CalculatePulseOxygenation:
         )
         # Excliude outliers in measurements
         self.rr_ycgcr = np.divide(np.log(cr_ac_signal), np.log(cg_ac_signal))
-        for i in range(len(self.rr_ycgcr)):
-            if self.rr_ycgcr[i] < 0 or self.rr_ycgcr[i] > 1.8:
-                if i > 0:
-                    self.rr_ycgcr[i] = self.rr_ycgcr[i - 1]
-                else:
-                    self.rr_ycgcr[i] = 1
+        # Create a boolean mask for out-of-range values
+        out_of_range = (self.rr_ycgcr < 0) | (self.rr_ycgcr > 1.8)
+        
+        # Replace out-of-range values with NaN for interpolation
+        self.rr_ycgcr[out_of_range] = np.nan
+
+        # Forward fill the NaN values
+        self.rr_ycgcr = pd.Series(self.rr_ycgcr).ffill().to_numpy()
+
+        # Replace any remaining NaN (which would be the very first element if it was out-of-range)
+        self.rr_ycgcr[np.isnan(self.rr_ycgcr)] = 1
         # If values over 100 or below 75 truncate
         self.spO2_ycgcr = 11.88 * self.rr_ycgcr + 82  # calibration adjustable
-        for i in range(len(self.spO2_ycgcr)):
-            if self.spO2_ycgcr[i] > 100:
-                self.spO2_ycgcr[i] = 100
-            if self.spO2_ycgcr[i] < 70:
-                self.spO2_ycgcr[i] = 70
+
+        self.spO2_ycgcr = self.clamp_spO2(self.spO2_ycgcr)
         # Smooth using Kalman filter
         self.spO2_ycgcr = MeerkatPipelineHelperfunctions.Kalman_filter(
-            self.spO2_ycgcr, 0.0001, 0.00001, 10
+            self.spO2_ycgcr,
+            self.process_noise,
+            self.measurement_noise,
+            self.initial_estimate_error,
         )
 
     def infrared_oxygenation(self):
@@ -178,13 +197,6 @@ class CalculatePulseOxygenation:
             self.filtered_ir, self.intervall_length
         )
 
-        # Define timestamps for bins
-        self.time_spO2 = np.linspace(
-            self.ts1[self.intervall_length],
-            self.ts1[-1],
-            num=int((len((self.filtered_red)) - self.intervall_length) / 30),
-        )
-
         # Calculate ratio of ratios
         red_signal = np.divide(red_ac_signal, red_dc_signal)
         ir_signal = np.divide(ir_ac_signal, ir_dc_signal)
@@ -192,15 +204,22 @@ class CalculatePulseOxygenation:
 
         # Calculate SpO2 truncate at 100
         self.spO2_infrared = 100 + 20 / 6 - 20 / 3 * self.rr_signal_infrared
-        for i in range(len(self.spO2_infrared)):
-            if self.spO2_infrared[i] > 100:
-                self.spO2_infrared[i] = 100
-            if self.spO2_infrared[i] < 70:
-                self.spO2_infrared[i] = 70
+        
+        self.spO2_infrared=self.clamp_spO2(self.spO2_infrared)
         self.spO2_infrared = MeerkatPipelineHelperfunctions.Kalman_filter(
-            self.spO2_infrared, 0.0001, 0.00001, 10
+            self.spO2_infrared,
+            self.process_noise,
+            self.measurement_noise,
+            self.initial_estimate_error,
         )
-
+    def generate_timestamps(self):
+        # Define timestamps for bins
+        self.time_spO2 = np.linspace(
+            self.ts1[self.intervall_length],
+            self.ts1[-1],
+            num=int((len((self.filtered_red)) - self.intervall_length) / 30),
+        )
+    
     def PCA_oxygenation(self):
         # Based on https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10712673/
         # Perform signal extraction using PCA from shallow layer
@@ -254,33 +273,28 @@ class CalculatePulseOxygenation:
             )
         )
         # Truncate excessively large and low values
-        for i in range(len(self.spO2_calibrated)):
-            if self.spO2_calibrated[i] > 100:
-                self.spO2_calibrated[i] = 100
-            if self.spO2_calibrated[i] < 70:
-                self.spO2_calibrated[i] = 70
+        self.spO2_calibrated = self.clamp_spO2(self.spO2_calibrated)
+
+        # Smooth
         self.spO2_calibrated = MeerkatPipelineHelperfunctions.Kalman_filter(
-            self.spO2_calibrated, 0.0001, 0.00001, 10
+            self.spO2_calibrated,
+            self.process_noise,
+            self.measurement_noise,
+            self.initial_estimate_error,
         )
-        self.timestamps_spO2_calibrated = np.linspace(
-            self.ts1[self.intervall_length], self.ts1[-1], num=len(self.spO2_calibrated)
-        )
+
+    def clamp_spO2(self, signal):
+        """
+        Clamps the values in self.spO2_ycgcr to be within the range [70, 100].
+        """
+        signal = np.clip(signal, 70, 100)
+        return signal
 
     def plot_data(self):
         # Plot all calculated signals and ground truth
-        plt.style.use(["default"])
-        params = {
-            "ytick.color": "black",
-            "xtick.color": "black",
-            "axes.labelcolor": "black",
-            "axes.edgecolor": "black",
-            "text.usetex": False,
-            "font.family": "serif",
-            "font.sans-serif": "Helvetica",
-        }
-        plt.rcParams.update(params)
+        colors = MeerkatPipelineHelperfunctions.set_plot_params()
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
-        colors = sns.color_palette("deep")
+
         ax1.plot(
             self.pulse_oximeter_timestamps,
             self.pulse_oximeter_spO2,
@@ -289,18 +303,8 @@ class CalculatePulseOxygenation:
         )
         ax1.plot(self.time_spO2, self.spO2_infrared, label="Infrared", color=colors[1])
         ax1.plot(self.time_spO2, self.spO2_rgb, label="RGB", color=colors[2])
-        ax1.set_ylabel("SpO2 (%)", fontsize=20)
-        ax1.set_xlabel("Time (s)", fontsize=20)
-        ax1.set_title("Infrared and RGB", fontsize=20)
-        ax1.set_ylim(68, 100)
-        ax1.legend(loc="lower right", fontsize=14, frameon=False)
-        ax1.spines["right"].set_visible(False)
-        ax1.spines["left"].set_visible(False)
-        ax1.spines["top"].set_visible(False)
-        ax1.yaxis.set_ticks_position("left")
-        ax1.xaxis.set_ticks_position("bottom")
-        ax1.tick_params(axis="x", labelsize=14)
-        ax1.tick_params(axis="y", labelsize=14)
+
+        self.set_spo2_plot_params(ax1)
 
         ax2.plot(
             self.pulse_oximeter_timestamps,
@@ -315,63 +319,81 @@ class CalculatePulseOxygenation:
             label="Calibration free",
             color=colors[2],
         )
-        ax2.set_ylabel("SpO2 (%)", fontsize=20)
-        ax2.set_xlabel("Time (s)", fontsize=20)
-        ax2.set_title("YCgCr and Calibration free", fontsize=20)
-        ax2.set_ylim(68, 100)
-        ax2.legend(loc="lower right", fontsize=14, frameon=False)
-        ax2.spines["right"].set_visible(False)
-        ax2.spines["left"].set_visible(False)
-        ax2.spines["top"].set_visible(False)
-        ax2.yaxis.set_ticks_position("left")
-        ax2.xaxis.set_ticks_position("bottom")
-        ax2.tick_params(axis="x", labelsize=14)
-        ax2.tick_params(axis="y", labelsize=14)
+        self.set_spo2_plot_params(ax2)
 
         plt.tight_layout(pad=2.5, w_pad=2.5)
         plt.show()
 
+    def set_spo2_plot_params(self, ax):
+        ax.set_ylabel("SpO2 (%)", fontsize=20)
+        ax.set_xlabel("Time (s)", fontsize=20)
+        ax.set_title("Infrared and RGB", fontsize=20)
+        ax.set_ylim(68, 100)
+        ax.legend(loc="lower right", fontsize=14, frameon=False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_visible(False)
+        ax.spines["top"].set_visible(False)
+        ax.yaxis.set_ticks_position("left")
+        ax.xaxis.set_ticks_position("bottom")
+        ax.tick_params(axis="x", labelsize=14)
+        ax.tick_params(axis="y", labelsize=14)
+
     def statistical_analysis(self):
-        # Perform statistical analysis on all signals
-        print("Oxygen saturation YCgCr")
-        Analysis = StatisticalAnalysis.MeerkatStatisticalAnalysis()
-        Analysis.vital_sign = "ycgcr_oxygen_saturation"
-        Analysis.subject_folder = self.subject_folder
-        Analysis.ground_truth_signal = self.pulse_oximeter_spO2
-        Analysis.ground_truth_timestamps = self.pulse_oximeter_timestamps
-        Analysis.reference_signal = self.spO2_ycgcr
-        Analysis.reference_timestamps = self.time_spO2
-        Analysis.kappa = 3
-        Analysis.run()
-        print("Oxygen saturation Infrared")
-        Analysis = StatisticalAnalysis.MeerkatStatisticalAnalysis()
-        Analysis.vital_sign = "infrared_oxygen_saturation"
-        Analysis.subject_folder = self.subject_folder
-        Analysis.ground_truth_signal = self.pulse_oximeter_spO2
-        Analysis.ground_truth_timestamps = self.pulse_oximeter_timestamps
-        Analysis.reference_signal = self.spO2_infrared
-        Analysis.reference_timestamps = self.time_spO2
-        Analysis.kappa = 3
-        Analysis.run()
-        print("Oxygen saturation RGB")
-        Analysis = StatisticalAnalysis.MeerkatStatisticalAnalysis()
-        Analysis.vital_sign = "rgb_oxygen_saturation"
-        Analysis.subject_folder = self.subject_folder
-        Analysis.ground_truth_signal = self.pulse_oximeter_spO2
-        Analysis.ground_truth_timestamps = self.pulse_oximeter_timestamps
-        Analysis.reference_signal = self.spO2_rgb
-        Analysis.reference_timestamps = self.time_spO2
-        Analysis.kappa = 3
-        Analysis.run()
-        print("Oxygen saturation calibration free")
-        Analysis = StatisticalAnalysis.MeerkatStatisticalAnalysis()
-        Analysis.vital_sign = "calibration_free_oxygen_saturation"
-        Analysis.subject_folder = self.subject_folder
-        Analysis.ground_truth_signal = self.pulse_oximeter_spO2
-        Analysis.ground_truth_timestamps = self.pulse_oximeter_timestamps
-        Analysis.reference_signal = self.spO2_calibrated
-        Analysis.reference_timestamps = self.time_spO2
-        Analysis.kappa = 3
-        Analysis.run()
+        """
+        Perform statistical analysis on various signals and write intermediate files.
+        """
+
+        def run_analysis(vital_sign, reference_signal, reference_timestamps):
+            """
+            Helper function to set up and run statistical analysis.
+
+            Args:
+                vital_sign (str): The name of the vital sign being analyzed.
+                reference_signal (array-like): The signal to be compared against the ground truth.
+                reference_timestamps (array-like): The timestamps for the reference signal.
+            """
+            print(f"{vital_sign.replace('_', ' ').title()} Analysis")
+            analysis = StatisticalAnalysis.MeerkatStatisticalAnalysis()
+            analysis.vital_sign = vital_sign
+            analysis.subject_folder = self.subject_folder
+            analysis.ground_truth_signal = self.pulse_oximeter_spO2
+            analysis.ground_truth_timestamps = self.pulse_oximeter_timestamps
+            analysis.reference_signal = reference_signal
+            analysis.reference_timestamps = reference_timestamps
+            analysis.kappa = 3
+            analysis.run()
+
+        # Perform analysis for each type of oxygen saturation
+        run_analysis("ycgcr_oxygen_saturation", self.spO2_ycgcr, self.time_spO2)
+        run_analysis("infrared_oxygen_saturation", self.spO2_infrared, self.time_spO2)
+        run_analysis("rgb_oxygen_saturation", self.spO2_rgb, self.time_spO2)
+        run_analysis(
+            "calibration_free_oxygen_saturation", self.spO2_calibrated, self.time_spO2
+        )
+
     def return_data(self):
-        return self.pulse_oximeter_timestamps, self.pulse_oximeter_spO2, self.time_spO2, self.spO2_calibrated, self.spO2_rgb, self.spO2_infrared, self.spO2_ycgcr,self.timestamps_spO2_calibrated
+        """
+        Returns:
+            dict: A dictionary with the following key-value pairs:
+                - "Pulse Oximeter Timestamps" (array): Timestamps from the pulse oximeter.
+                - "Pulse Oximeter SpO2" (array): SpO2 values from the pulse oximeter.
+                - "Time SpO2" (array): Timestamps for SpO2 measurements.
+                - "SpO2 Calibrated" (array): Calibrated SpO2 values.
+                - "SpO2 RGB" (array): SpO2 values from RGB signal.
+                - "SpO2 Infrared" (array): SpO2 values from Infrared signal.
+                - "SpO2 YCgCr" (array): SpO2 values from YCgCr signal.
+                - "Timestamps SpO2 Calibrated" (array): Timestamps for calibrated SpO2.
+        """
+        # Create a dictionary with all relevant data
+        data = {
+            "Pulse Oximeter Timestamps": self.pulse_oximeter_timestamps,
+            "Pulse Oximeter SpO2": self.pulse_oximeter_spO2,
+            "Time SpO2": self.time_spO2,
+            "SpO2 Calibrated": self.spO2_calibrated,
+            "SpO2 RGB": self.spO2_rgb,
+            "SpO2 Infrared": self.spO2_infrared,
+            "SpO2 YCgCr": self.spO2_ycgcr,
+            "Timestamps SpO2 Calibrated": self.timestamps_spO2_calibrated,
+        }
+
+        return data

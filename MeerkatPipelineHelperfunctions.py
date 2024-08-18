@@ -127,43 +127,47 @@ def PCA_respiratory_signal(
     F_trend = np.multiply(F_trend, chest_area) / 10**3
 
     # Assign 10000 to outlier values to remove them in later processing
+    
+    # Create a boolean mask where the condition is met
+    mask = np.abs(F_trend) > 8
 
-    for i in range(len(F_trend)):
-        if abs(F_trend[i]) > 8:
-            F_trend[i] = 10000 if outliers else 8
+    # Apply the condition and update F_trend
+    F_trend[mask] = 10000 if outliers else 8
     return F_trend
 
 
 def choose_subject(data_analysis_folder):
-
-    filenames = []
-    i = 1
-    for file in os.listdir(data_analysis_folder):
-        filenames.append(os.fsdecode(file))
-        if "mk" in file:
-            print(i, " : ", file)
-            i += 1
-
-    input_file = False
-    while not input_file:
-        users_choice = input("Desired subject: ")
-        if users_choice.isnumeric():
-            users_choice = int(users_choice) - 1
-            if users_choice <= len(filenames):
-                file_folder = filenames[users_choice]
-                input_file = True
-                continue
-
+    """
+    Prompts the user to select a subject from the files in the specified folder.
+    
+    Args:
+        data_analysis_folder (str): The path to the folder containing subject files.
+        
+    Returns:
+        str: The path to the selected subject folder.
+    """
+    # List all files in the directory and filter for files containing 'mk'
+    filenames = [os.fsdecode(file) for file in os.listdir(data_analysis_folder) if "mk" in file]
+    
+    # Print file options
+    for i, file in enumerate(filenames, start=1):
+        print(f"{i} : {file}")
+    
+    # Prompt user for selection
+    while True:
+        try:
+            user_choice = int(input("Desired subject: ")) - 1
+            if 0 <= user_choice < len(filenames):
+                file_folder = filenames[user_choice]
+                break
             else:
-                print("Out of range")
-
-        else:
-            print("Input must be a number")
-
-    file_folder = repr("\\" + file_folder)
-    file_folder = file_folder[2:-1]
-    subject_folder = data_analysis_folder + file_folder
+                print("Out of range. Please enter a valid number.")
+        except ValueError:
+            print("Input must be a number. Please try again.")
+    # Construct and return the full path to the selected subject folder
+    subject_folder = os.path.join(data_analysis_folder, file_folder)
     return subject_folder
+
 
 
 def find_ac_signal(filtered_signal, intervall):
@@ -227,10 +231,10 @@ def Kalman_filter(signal, alpha, beta, noise):
         observation_model=np.array([[1, 0]]),
         observation_noise=noise,
     )
-
-    data = np.array(signal)
+    signal = np.array(signal)
+    
     # smooth and explain existing data
-    smoothed = kf.smooth(data)
+    smoothed = kf.smooth(signal)
     kalman_1D_signal = smoothed.observations.mean
     return kalman_1D_signal
 
