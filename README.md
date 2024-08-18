@@ -32,10 +32,8 @@ code blocks for commands
 
 ## Authors
 
-Contributors names and contact info
-
-Silas Ruhrberg Estevez
-sr933@cam.ac.uk
+* Silas Ruhrberg Estevez
+* sr933@cam.ac.uk
 
 
 ## License
