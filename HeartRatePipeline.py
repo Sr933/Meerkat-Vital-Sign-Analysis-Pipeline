@@ -331,5 +331,15 @@ class Calculate_heart_rate:
         Analysis.reference_signal = self.average
         Analysis.reference_timestamps = self.timestamps
         Analysis.run()
+
     def return_data(self):
-        return self.ECG_timestamps, self.ECG_rate, self.POS_kalman, self.CHROM_kalman, self.POS_kalman_peaks, self.CHROM_kalman_peaks, self.timestamps, self.average
+        return (
+            self.ECG_timestamps,
+            self.ECG_rate,
+            self.POS_kalman,
+            self.CHROM_kalman,
+            self.POS_kalman_peaks,
+            self.CHROM_kalman_peaks,
+            self.timestamps,
+            self.average,
+        )

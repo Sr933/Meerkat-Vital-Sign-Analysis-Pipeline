@@ -329,6 +329,7 @@ def coverage_probability(matched_ground_truth_signal, matched_reference_signal, 
     print("CP", kappa, "%:", cp)
     
 def set_plot_params():
+    #Set font parameters and return new colour cycle to use for plotting
     plt.style.use(["default"])
     params = {
         "ytick.color": "black",

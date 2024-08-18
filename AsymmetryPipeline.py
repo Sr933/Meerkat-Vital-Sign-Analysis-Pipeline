@@ -3,13 +3,13 @@ import numpy as np
 import os
 import MeerkatPipelineHelperfunctions
 import pandas as pd
-import seaborn as sns
+
 
 class BreathingAsymmetry:
     def __init__(self, data_analysis_folder="", intervall_length=1800):
         """
         Initialize the BreathingAsymmetry class.
-        
+
         Parameters:
         - data_analysis_folder (str): Path to the folder containing data.
         - intervall_length (int): Length of the sliding window interval in seconds.
@@ -22,7 +22,9 @@ class BreathingAsymmetry:
         Run the complete analysis process.
         """
         # Choose the subject folder using the helper function
-        self.subject_folder = MeerkatPipelineHelperfunctions.choose_subject(self.data_analysis_folder)
+        self.subject_folder = MeerkatPipelineHelperfunctions.choose_subject(
+            self.data_analysis_folder
+        )
         # Import respiratory data from camera
         self.import_camera_resp_data()
         # Calculate PCA signals for respiratory data
@@ -48,13 +50,13 @@ class BreathingAsymmetry:
         df = pd.read_csv(camera_filepath)
 
         # Extract relevant columns from the DataFrame
-        self.ts1 = df["Time (s)"].values
-        self.ROI_x_1_array = df[" Rectangle x1"].values
-        self.ROI_x_2_array = df[" Rectangle x2"].values
-        self.ROI_y_1_array = df[" Rectangle y1"].values
-        self.ROI_y_2_array = df[" Rectangle y2"].values
-        self.left_chest_depth = df[" Depth Left Chest"].values
-        self.right_chest_depth = df[" Depth Right Chest"].values
+        self.ts1 = df["Time (s)"].to_numpy()
+        self.ROI_x_1_array = df[" Rectangle x1"].to_numpy()
+        self.ROI_x_2_array = df[" Rectangle x2"].to_numpy()
+        self.ROI_y_1_array = df[" Rectangle y1"].to_numpy()
+        self.ROI_y_2_array = df[" Rectangle y2"].to_numpy()
+        self.left_chest_depth = df[" Depth Left Chest"].to_numpy()
+        self.right_chest_depth = df[" Depth Right Chest"].to_numpy()
 
     def calculate_pca_signals(self):
         """
@@ -62,23 +64,39 @@ class BreathingAsymmetry:
         """
         # Calculate PCA signals for left chest
         self.PCA_signal_left = MeerkatPipelineHelperfunctions.PCA_respiratory_signal(
-            self.left_chest_depth, self.ROI_x_1_array, self.ROI_x_2_array,
-            self.ROI_y_1_array, self.ROI_y_2_array, outliers=False)
+            self.left_chest_depth,
+            self.ROI_x_1_array,
+            self.ROI_x_2_array,
+            self.ROI_y_1_array,
+            self.ROI_y_2_array,
+            outliers=False,
+        )
         # Calculate PCA signals for right chest
         self.PCA_signal_right = MeerkatPipelineHelperfunctions.PCA_respiratory_signal(
-            self.right_chest_depth, self.ROI_x_1_array, self.ROI_x_2_array,
-            self.ROI_y_1_array, self.ROI_y_2_array, outliers=False)
+            self.right_chest_depth,
+            self.ROI_x_1_array,
+            self.ROI_x_2_array,
+            self.ROI_y_1_array,
+            self.ROI_y_2_array,
+            outliers=False,
+        )
 
     def find_tidal_volumes(self):
         """
         Find valid tidal volumes and peaks for the left and right sides.
         """
         # Find tidal volumes and peaks for left chest
-        self.left_peaks, self.left_volumes, _, _ = MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(
-            self.ts1, self.PCA_signal_left)
+        self.left_peaks, self.left_volumes, _, _ = (
+            MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(
+                self.ts1, self.PCA_signal_left
+            )
+        )
         # Find tidal volumes and peaks for right chest
-        self.right_peaks, self.right_volumes, _, _ = MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(
-            self.ts1, self.PCA_signal_right)
+        self.right_peaks, self.right_volumes, _, _ = (
+            MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(
+                self.ts1, self.PCA_signal_right
+            )
+        )
 
     def calculate_windowed_volumes(self):
         """
@@ -86,34 +104,55 @@ class BreathingAsymmetry:
         """
         # Calculate volumes using sliding windows for left chest
         self.left_volumes_windowed = self.chest_half_movement_sliding_window(
-            self.PCA_signal_left, self.left_peaks, self.left_volumes)
+            self.PCA_signal_left, self.left_peaks, self.left_volumes
+        )
         # Calculate volumes using sliding windows for right chest
         self.right_volumes_windowed = self.chest_half_movement_sliding_window(
-            self.PCA_signal_right, self.right_peaks, self.right_volumes)
+            self.PCA_signal_right, self.right_peaks, self.right_volumes
+        )
 
-    def chest_half_movement_sliding_window(self, signal, valid_peaks, valid_tidal_volumes):
+    def chest_half_movement_sliding_window(
+        self, signal, valid_peaks, valid_tidal_volumes
+    ):
         """
         Calculate average tidal volumes in sliding windows.
-        
+
         Parameters:
         - signal (array): PCA signal array.
         - valid_peaks (array): Array of valid peak indices.
         - valid_tidal_volumes (array): Array of valid tidal volumes.
-        
+
         Returns:
         - interval_volumes (list): Average tidal volumes in sliding windows.
         """
-        interval_volumes = []
-        valid_peaks = np.array(valid_peaks)
+        # interval_volumes = []
+        # valid_peaks = np.array(valid_peaks)
 
-        # Iterate over the signal with a sliding window approach
-        for i in range(0, len(signal) - self.intervall_length, 30):
-            indices = np.where((valid_peaks >= i) & (valid_peaks <= self.intervall_length + i))[0]
-            if indices.size > 0:
-                avg_volume = np.mean(valid_tidal_volumes[indices])
-            else:
-                avg_volume = interval_volumes[-1] if interval_volumes else 0.1
-            interval_volumes.append(avg_volume)
+        # Create an array of start indices for each interval
+        start_indices = np.arange(0, len(signal) - self.intervall_length, 30)
+
+        # Calculate the end indices for each interval
+        end_indices = start_indices + self.intervall_length
+
+        # Create a boolean mask where each element is True if the corresponding peak is within the interval
+        mask = (valid_peaks[:, np.newaxis] >= start_indices) & (
+            valid_peaks[:, np.newaxis] <= end_indices
+        )
+
+        # Use the mask to find the indices of the peaks within each interval
+        indices = np.where(mask)
+
+        # Calculate the average tidal volume for each interval
+        interval_volumes = np.array(
+            [
+                (
+                    np.mean(valid_tidal_volumes[indices[0][indices[1] == i]])
+                    if np.any(indices[1] == i)
+                    else (interval_volumes[-1] if interval_volumes else 0.1)
+                )
+                for i in range(len(start_indices))
+            ]
+        )
 
         return interval_volumes
 
@@ -123,24 +162,38 @@ class BreathingAsymmetry:
         """
         # Create an array of timestamps for the sliding windows
         self.window_timestamps = np.linspace(
-            self.ts1[self.intervall_length], self.ts1[-1],
-            num=len(self.left_volumes_windowed))
+            self.ts1[self.intervall_length],
+            self.ts1[-1],
+            num=len(self.left_volumes_windowed),
+        )
 
     def plot_data(self):
         """
         Plot the asymmetry score over time.
         """
         # Set plotting style and parameters
-        colors=MeerkatPipelineHelperfunctions.set_plot_params()
+        colors = MeerkatPipelineHelperfunctions.set_plot_params()
 
         # Calculate the asymmetry score
-        self.asymmetry_score = 200 * (np.array(self.left_volumes_windowed) - np.array(self.right_volumes_windowed)) / \
-                               (np.array(self.left_volumes_windowed) + np.array(self.right_volumes_windowed))
+        self.asymmetry_score = (
+            200
+            * (
+                np.array(self.left_volumes_windowed)
+                - np.array(self.right_volumes_windowed)
+            )
+            / (
+                np.array(self.left_volumes_windowed)
+                + np.array(self.right_volumes_windowed)
+            )
+        )
 
         # Create a plot
         fig, ax = plt.subplots(figsize=(7.4, 4))
         ax.plot(self.window_timestamps, self.asymmetry_score, color=colors[0])
-        ax.set(xlabel="Time (s)", ylabel="Asymmetry score (%)", title="Breathing asymmetry")
+        ax.set(
+            xlabel="Time (s)", ylabel="Asymmetry score (%)", title="Breathing asymmetry"
+        )
+
         # Customize plot appearance
         ax.spines["right"].set_visible(False)
         ax.spines["left"].set_visible(False)
@@ -154,10 +207,15 @@ class BreathingAsymmetry:
 
     def return_data(self):
         """
-        Return the calculated timestamps and asymmetry scores.
-        
         Returns:
-        - window_timestamps (array): Timestamps for sliding windows.
-        - asymmetry_score (array): Calculated breathing asymmetry scores.
+            dict: A dictionary containing:
+                - 'Window timestamps' (array): An array of timestamps associated with each sliding window.
+                - 'Asymmetry score' (array): An array of calculated asymmetry scores corresponding to the timestamps.
         """
-        return self.window_timestamps, self.asymmetry_score
+
+        # Create a dictionary that maps descriptive keys to the respective data.
+        data = {
+            "Window timestamps": self.window_timestamps,  # Timestamps for each sliding window.
+            "Asymmetry score": self.asymmetry_score,  # Asymmetry scores for the respective windows.
+        }
+        return data
