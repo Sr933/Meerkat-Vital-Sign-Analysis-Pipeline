@@ -108,6 +108,7 @@ class CalculateFlowVolumeLoop:
         if os.path.exists(self.intermediate_folder):
             shutil.rmtree(self.intermediate_folder)
         os.makedirs(self.intermediate_folder)
+        
         self.intermediate_file = os.path.join(
             self.intermediate_folder, "pipeline intermediate.csv"
         )
@@ -262,7 +263,8 @@ class CalculateFlowVolumeLoop:
             fig, (ax1) = plt.subplots(1, 1, figsize=(7.5, 6))
 
         # Iterate over peaks and calculate flow-volume loop for each peak
-        for j in range(len(self.valid_peaks) - 1):
+        breath_number=len(self.valid_peaks) - 1
+        for j in range(breath_number):
             breath_volume, breath_flow, flow_crossings = self.camera_loop_calc(j)
             # Criteria for fv loop visualisation
             if self.valid_loop(breath_flow, breath_volume, flow_crossings):
@@ -272,11 +274,13 @@ class CalculateFlowVolumeLoop:
 
         # Define plot parameters
         self.set_fv_plot_params(ax1)
+        ax1.set_title("Camera", fontsize=20)
 
         # Calculate ventilator loop
         if self.hasventilator:
             # Iterate over peaks and calculate flow volume loop
-            for j in range(len(self.breath_start) - 1):
+            ventilator_breath_number=len(self.breath_start) - 1
+            for j in range(ventilator_breath_number):
                     breath_volume, breath_flow, flow_crossings = self.ventilator_loop_calc(j)
                     # Criteria for fv loop visualisation
                     if self.valid_loop(
@@ -288,61 +292,48 @@ class CalculateFlowVolumeLoop:
 
             # Define plot parameters
             self.set_fv_plot_params(ax2)
+            ax2.set_title("Ventilator", fontsize=20)
         plt.tight_layout(pad=2.5, w_pad=2.5)
         plt.show()
 
     def plot_single_loops(self):
         # Plot parameters
         colors = MeerkatPipelineHelperfunctions.set_plot_params()
-        
-        for i in range(len(self.valid_peaks)):
+        camera_breath_number=len(self.valid_peaks)-1
+        for i in range(camera_breath_number):
             camera_peak_t = self.ts1[i]
-            for j in range(len(self.breath_start)):
+            ventilator_breath_number=len(self.breath_start) - 1
+            for j in range(ventilator_breath_number):
                 ventilator_peak_t = self.ventilator_time[int(self.breath_start[j])]
                 if abs(camera_peak_t - ventilator_peak_t) < 2.0:
-                    plot1 = False
-                    plot2 = False
-                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
-                    # Define plot parameters
-                    self.set_fv_plot_params(ax1)
-
-                    breath_volume, breath_flow, flow_crossings = self.camera_loop_calc(j)
-                    if self.valid_loop(breath_flow, breath_volume, flow_crossings):
-                        ax1.plot(breath_volume, breath_flow, color=colors[0])
-                        plot1 = True
-
-                        breath_volume, breath_flow, flow_crossings = self.camera_loop_calc(j)
-
-                        if self.valid_loop(breath_flow, breath_volume, flow_crossings):
-                            ax2.plot(breath_volume, breath_flow, color=colors[0])
-                            plot2 = True
-                    # Define plot parameters
-                    self.set_fv_plot_params(ax2)
+                    breath_volume_camera, breath_flow_camera, flow_crossings_camera = self.camera_loop_calc(i)
+                    breath_volume_ventilator, breath_flow_ventilator, flow_crossings_ventilator = self.ventilator_loop_calc(j)
                     
-
+                    # Define plot parameters
+            
                     # Show loops if both loops are considered valid
-                    if plot1 and plot2:
+                    if self.valid_loop(breath_flow_camera, breath_volume_camera, flow_crossings_camera) and self.valid_loop(breath_flow_ventilator, breath_volume_ventilator, flow_crossings_ventilator):
+                        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+                        # Define plot parameters
+                        self.set_fv_plot_params(ax1)
+                        ax1.set_title("Camera", fontsize=20)
+                        self.set_fv_plot_params(ax2)
+                        ax2.set_title("Ventilator", fontsize=20)
+                        
+                        ax1.plot(breath_volume_camera, breath_flow_camera, color=colors[0])
+                        ax2.plot(breath_volume_ventilator, breath_flow_ventilator, color=colors[0])
                         plt.tight_layout(pad=2.5, w_pad=2.5)
                         plt.show()
-                    else:
-                        plt.clf()
-                        plt.close()
 
     def set_fv_plot_params(self, ax):
         ax.set_xlabel("Volume (ml)", fontsize=20)
         ax.set_ylabel("Flow (ml/s)", fontsize=20)
-        ax.set_title("Ventilator", fontsize=20)
         ax.set_xlim(-10, 1)
         ax.set_ylim(-60, 60)
         ax.grid()
-        ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_visible(False)
-        ax.spines["top"].set_visible(False)
-        ax.yaxis.set_ticks_position("left")
-        ax.xaxis.set_ticks_position("bottom")
-        ax.tick_params(axis="x", labelsize=14)
-        ax.tick_params(axis="y", labelsize=14)
+        MeerkatPipelineHelperfunctions.plot_prettifier(ax)
 
     def return_data(self):
         """
