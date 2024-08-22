@@ -243,7 +243,7 @@ class Calculate_heart_rate:
             std = 15
             
             resp_gaussian = norm.pdf(xf, mean, std)
-            yf = np.multiply(yf, resp_gaussian) * 100
+            yf = np.multiply(yf, resp_gaussian)
             fourier_rate[i]=xf[np.where(yf == np.max(yf))[0][0]]
         return fourier_rate
 

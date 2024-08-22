@@ -168,7 +168,7 @@ class CalculateFlowVolumeLoop:
         # Identify valid tidal volumes and related statistics
         self.valid_peaks, self.valid_tidal_volumes, self.mean, self.std = (
             MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(
-                self.ts1, self.PCA_signal_vol
+                self.PCA_signal_vol
             )
         )
 

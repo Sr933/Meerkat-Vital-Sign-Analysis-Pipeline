@@ -32,12 +32,12 @@ class CalculatePulseOxygenation:
         )
         self.import_oxygen_saturation_data()
         self.smooth_signals()
-        self.generate_timestamps()
         self.import_oximeter_spO2()
         self.infrared_oxygenation()
         self.rgb_oxygenation()
         self.ycgcr_oxygenation()
         self.PCA_oxygenation()
+        self.generate_timestamps()
         self.plot_data()
         self.statistical_analysis()
 
@@ -114,7 +114,6 @@ class CalculatePulseOxygenation:
         blue_signal = np.divide(blue_ac_signal, blue_dc_signal)
         self.rr_signal_rgb = np.divide(blue_signal, red_signal)
 
-        # If values over 100 or below 75 truncate
         self.spO2_rgb = (
             40 * np.log(self.rr_signal_rgb) + 80
         )  # calibration can be adjusted as needed
@@ -218,6 +217,9 @@ class CalculatePulseOxygenation:
             self.ts1[self.intervall_length],
             self.ts1[-1],
             num=int((len((self.filtered_red)) - self.intervall_length) / 30),
+        )
+        self.timestamps_spO2_calibrated = np.linspace(
+            self.ts1[self.intervall_length], self.ts1[-1], num=len(self.spO2_calibrated)
         )
     
     def PCA_oxygenation(self):

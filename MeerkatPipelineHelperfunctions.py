@@ -124,13 +124,11 @@ def PCA_respiratory_signal(
 
     # Calculate volume signal
     chest_area = np.multiply((ROI_x2 - ROI_x1), (ROI_y2 - ROI_y1))
-    F_trend = np.multiply(F_trend, chest_area) / 10**3
+    F_trend = np.multiply(F_trend, chest_area) / 10**3 #convert units from mm^3
 
     # Assign 10000 to outlier values to remove them in later processing
-    
-    # Create a boolean mask where the condition is met
-    mask = np.abs(F_trend) > 8
-
+    threshold=8
+    mask = np.abs(F_trend) > threshold
     # Apply the condition and update F_trend
     F_trend[mask] = 10000 if outliers else 8
     return F_trend
@@ -170,57 +168,37 @@ def choose_subject(data_analysis_folder):
 
 
 
-def find_ac_signal(filtered_signal, intervall):
-    signal_ac_signal = []
-    signal_dc_signal = []
-    filtered_signal = np.array(filtered_signal)
+def find_ac_signal(filtered_signal, interval):
     peaks_signal, _ = find_peaks(filtered_signal, distance=6)
-
     valleys_signal, _ = find_peaks(-filtered_signal, distance=6)
 
-    # Calculate peaks and valleys in each intervall length
-    for time in range(int((len(filtered_signal) - intervall) / 30)):
-        result_signal_peaks = np.where(
-            np.logical_and(
-                peaks_signal >= 30 * time, peaks_signal <= intervall + 30 * time
-            )
-        )[0]
-        result_signal_valleys = np.where(
-            np.logical_and(
-                valleys_signal >= 30 * time, valleys_signal <= intervall + 30 * time
-            )
-        )[0]
-        peaks = []
-        valleys = []
-        for peak in range(len(result_signal_peaks)):
-            peaks.append(filtered_signal[peaks_signal[peak]])
+    num_intervals = int((len(filtered_signal) - interval) / 30)
 
-        for valley in range(len(result_signal_valleys)):
-            valleys.append(filtered_signal[valleys_signal[valley]])
-        amplitudes = []
+    signal_ac_signal = np.zeros(num_intervals)
+    signal_dc_signal = np.zeros(num_intervals)
 
-        # Calculate amplitude between peaks and valleys
-        if len(peaks) > len(valleys):
-            for i in range(len(valleys)):
-                amplitudes.append(peaks[i] - valleys[i])
-        elif len(peaks) < len(valleys):
-            for i in range(len(peaks)):
-                amplitudes.append(peaks[i] - valleys[i])
+    for time in range(num_intervals):
+        start_idx = 30 * time
+        end_idx = interval + start_idx
 
-        else:
-            amplitudes = np.array(peaks) - np.array(valleys)
+        # Get indices of peaks and valleys within the current interval
+        result_signal_peaks = np.where((peaks_signal >= start_idx) & (peaks_signal <= end_idx))[0]
+        result_signal_valleys = np.where((valleys_signal >= start_idx) & (valleys_signal <= end_idx))[0]
 
-        signal_ac_signal.append(np.median(amplitudes))
-        signal_dc_signal.append(
-            np.median(
-                filtered_signal[
-                    peaks_signal[result_signal_peaks[0]] : peaks_signal[
-                        result_signal_peaks[-1]
-                    ]
-                ]
-            )
-        )
+        # Extract peak and valley values
+        peaks = filtered_signal[peaks_signal[result_signal_peaks]]
+        valleys = filtered_signal[valleys_signal[result_signal_valleys]]
+
+        # Calculate amplitudes
+        min_len = min(len(peaks), len(valleys))
+        amplitudes = peaks[:min_len] - valleys[:min_len]
+
+        # Calculate and store AC and DC signals
+        signal_ac_signal[time] = np.median(amplitudes)
+        signal_dc_signal[time] = np.median(filtered_signal[peaks_signal[result_signal_peaks[0]] : peaks_signal[result_signal_peaks[-1]]])
+
     return signal_ac_signal, signal_dc_signal
+
 
 
 def Kalman_filter(signal, alpha, beta, noise):
@@ -239,98 +217,91 @@ def Kalman_filter(signal, alpha, beta, noise):
     return kalman_1D_signal
 
 
-def find_valid_tidal_volumes(timestamps, signal):
-    # Asess whether motion is likely to be a breath or not by comparing tidal volume with all tidal volumes in recording
-    breathing_rate = []
-    breath_timestamps = []
-    peak_location = []
-
+def find_valid_tidal_volumes(signal):
+    # Identify peaks in the signal
     peaks, _ = find_peaks(
         signal,
         width=8,
         distance=18,
-        height=np.average(np.array(signal)),
+        height=np.average(signal),
     )
-    for i in range(len(peaks) - 1):
-        breathing_rate.append(1800 / (peaks[i + 1] - peaks[i]))
-        breath_timestamps.append(timestamps[peaks[i]])
-        peak_location.append(timestamps[peaks[i]])
+    # Calculate tidal volumes between successive peaks
+    breath_start_indices = peaks[:-1]
+    breath_end_indices = peaks[1:]
+    breath_signals = [signal[start:end] for start, end in zip(breath_start_indices, breath_end_indices)]
+    tidal_volume = [sig[0] - np.min(sig) for sig in breath_signals]
 
-    tidal_volume = []
+    # Remove outliers in tidal volume data
+    tidal_volume = np.array(tidal_volume)
+    median_tidal_volume = np.median(tidal_volume)
+    threshold = max(7.5, median_tidal_volume * 1.5)
 
-    for i in range(len(peaks) - 1):
-        breath_start = peaks[i]
-        breath_end = peaks[i + 1]
-        breath_signal = signal[breath_start:breath_end]
-        maximum_depth = breath_signal[0]
-        minimum_depth = np.min(breath_signal)
-        tidal = maximum_depth - minimum_depth
-        tidal_volume.append(tidal)
+    preprocessed_tidal_volumes = tidal_volume[(tidal_volume >= 2) & (tidal_volume < threshold)]
 
-    # remove outliers in data
-    preprocessed_tidal_volumes = []
-    med = np.median(tidal_volume)
-    threshold = 7.5
-    if med > 5:
-        threshold = med * 1.5
-    for vol in tidal_volume:
-        if vol >= 2 and vol < threshold:
-            preprocessed_tidal_volumes.append(vol)
+    # Only include tidal volumes within ±2 std of the mean after outlier removal
+    mean_tidal_volume = np.median(preprocessed_tidal_volumes)
+    std_tidal_volume = np.std(preprocessed_tidal_volumes)
 
-    # only include +- 2 std of mean volume after outlier removal
-    mean = np.median(preprocessed_tidal_volumes)
-    std = np.std(preprocessed_tidal_volumes)
+    valid_indices = np.where(
+        (tidal_volume >= 2) & 
+        (tidal_volume <= threshold) & 
+        (tidal_volume <= mean_tidal_volume + 2 * std_tidal_volume) & 
+        (tidal_volume >= mean_tidal_volume - 2 * std_tidal_volume)
+    )[0]
 
-    valid_tidal_volumes = []
-    valid_peaks = []
+    valid_tidal_volumes = tidal_volume[valid_indices]
+    valid_peaks = peaks[valid_indices]
 
-    for i in range(len(tidal_volume)):
-        if (
-            tidal_volume[i] >= 2
-            and tidal_volume[i] <= threshold
-            and tidal_volume[i] <= mean + 2 * std
-            and tidal_volume[i] >= mean - 2 * std
-        ):
-            valid_tidal_volumes.append(tidal_volume[i])
-            valid_peaks.append(peaks[i])
-    return np.asarray(valid_peaks), np.asarray(valid_tidal_volumes), mean, std
+    return valid_peaks, valid_tidal_volumes, mean_tidal_volume, std_tidal_volume
+
 
 
 def mean_square_diff(matched_ground_truth_signal, matched_reference_signal):
-    square_diff = np.zeros(len(matched_ground_truth_signal))
-    for i in range(len(matched_ground_truth_signal)):
-        square_diff[i] = (
-            matched_ground_truth_signal[i] - matched_reference_signal[i]
-        ) ** 2
+    # Calculate the squared differences directly using vectorized operations
+    square_diff = (matched_ground_truth_signal - matched_reference_signal) ** 2
+    
+    # Compute the mean of the squared differences
     mean_square_diff = np.mean(square_diff)
-    print("MSE:", mean_square_diff)
-
+    
+    print(f"MSE: {mean_square_diff:.4f}")
 
 def mean_absolute_diff(matched_ground_truth_signal, matched_reference_signal):
-    absolute_diff = np.zeros(len(matched_ground_truth_signal))
-    for i in range(len(matched_ground_truth_signal)):
-        absolute_diff[i] = abs(
-            matched_ground_truth_signal[i] - matched_reference_signal[i]
-        )
+    # Calculate the absolute differences directly using vectorized operations
+    absolute_diff = np.abs(matched_ground_truth_signal - matched_reference_signal)
+    
+    # Compute the mean of the absolute differences
     mean_diff = np.mean(absolute_diff)
-    print("MAD:", mean_diff)
-    print("MAD:", mean_diff/np.mean(matched_ground_truth_signal)*100, "%")
+    
+    # Print the Mean Absolute Difference (MAD)
+    print(f"Mean Absolute Difference (MAD): {mean_diff:.4f}")
+
+    # Calculate MAD as a percentage of the mean of the ground truth signal
+    mad_percentage = mean_diff / np.mean(matched_ground_truth_signal) * 100
+
+    # Print the MAD as a percentage
+    print(f"MAD as Percentage of Ground Truth Mean: {mad_percentage:.2f}%")
+
 
 
 def coverage_probability(matched_ground_truth_signal, matched_reference_signal, kappa):
-    truth = np.array(matched_ground_truth_signal)
-    truth_upper = truth + kappa / 100 * np.mean(truth)
-    truth_lower = truth - kappa / 100 * np.mean(truth)
-    count_in = 0
-    for i in range(len(matched_reference_signal)):
-        if (
-            matched_reference_signal[i] > truth_lower[i]
-            and matched_reference_signal[i] < truth_upper[i]
-        ):
-            count_in += 1
-
+    
+    # Calculate the upper and lower bounds
+    truth_mean = np.mean(matched_ground_truth_signal)
+    margin = kappa / 100 * truth_mean
+    truth_upper = matched_ground_truth_signal + margin
+    truth_lower = matched_ground_truth_signal - margin
+    
+    # Count the number of reference signals within the bounds
+    count_in = np.sum((matched_reference_signal > truth_lower) & 
+                      (matched_reference_signal < truth_upper))
+    
+    # Calculate the coverage probability
     cp = count_in / len(matched_reference_signal)
-    print("CP", kappa, "%:", cp)
+    
+    # Print the coverage probability
+    print(f"CP {kappa}%:", cp)
+
+
     
 def set_plot_params():
     #Set font parameters and return new colour cycle to use for plotting
@@ -347,3 +318,12 @@ def set_plot_params():
     colors = sns.color_palette("deep")
     plt.rcParams.update(params)
     return colors
+
+def plot_prettifier(ax):
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["top"].set_visible(False)
+    ax.yaxis.set_ticks_position("left")
+    ax.xaxis.set_ticks_position("bottom")
+    ax.tick_params(axis="x", labelsize=14)
+    ax.tick_params(axis="y", labelsize=14)

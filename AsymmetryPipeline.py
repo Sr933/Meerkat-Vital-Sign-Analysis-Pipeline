@@ -35,6 +35,8 @@ class BreathingAsymmetry:
         self.calculate_windowed_volumes()
         # Generate timestamps for the sliding windows
         self.generate_timestamps()
+        # Calculate asymmetry scores
+        self.calculate_asymmetry()
         # Plot the data
         self.plot_data()
 
@@ -88,13 +90,13 @@ class BreathingAsymmetry:
         # Find tidal volumes and peaks for left chest
         self.left_peaks, self.left_volumes, _, _ = (
             MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(
-                self.ts1, self.PCA_signal_left
+                self.PCA_signal_left
             )
         )
         # Find tidal volumes and peaks for right chest
         self.right_peaks, self.right_volumes, _, _ = (
             MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(
-                self.ts1, self.PCA_signal_right
+                self.PCA_signal_right
             )
         )
 
@@ -125,8 +127,6 @@ class BreathingAsymmetry:
         Returns:
         - interval_volumes (list): Average tidal volumes in sliding windows.
         """
-        # interval_volumes = []
-        # valid_peaks = np.array(valid_peaks)
 
         # Create an array of start indices for each interval
         start_indices = np.arange(0, len(signal) - self.intervall_length, 30)
@@ -166,14 +166,8 @@ class BreathingAsymmetry:
             self.ts1[-1],
             num=len(self.left_volumes_windowed),
         )
-
-    def plot_data(self):
-        """
-        Plot the asymmetry score over time.
-        """
-        # Set plotting style and parameters
-        colors = MeerkatPipelineHelperfunctions.set_plot_params()
-
+        
+    def calculate_asymmetry(self):
         # Calculate the asymmetry score
         self.asymmetry_score = (
             200
@@ -187,21 +181,21 @@ class BreathingAsymmetry:
             )
         )
 
+    def plot_data(self):
+        """
+        Plot the asymmetry score over time.
+        """
+        # Set plotting style and parameters
+        colors = MeerkatPipelineHelperfunctions.set_plot_params()
         # Create a plot
         fig, ax = plt.subplots(figsize=(7.4, 4))
         ax.plot(self.window_timestamps, self.asymmetry_score, color=colors[0])
-        ax.set(
-            xlabel="Time (s)", ylabel="Asymmetry score (%)", title="Breathing asymmetry"
-        )
+        ax.set_xlabel("Time (s)", fontsize=14)
+        ax.set_ylabel("Asymmetry score (%)", fontsize=14)
+        ax.set_title("Breathing asymmetry", fontsize=14)
 
         # Customize plot appearance
-        ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_visible(False)
-        ax.spines["top"].set_visible(False)
-        ax.yaxis.set_ticks_position("left")
-        ax.xaxis.set_ticks_position("bottom")
-        ax.tick_params(axis="x", labelsize=14)
-        ax.tick_params(axis="y", labelsize=14)
+        MeerkatPipelineHelperfunctions.plot_prettifier(ax)
         plt.tight_layout(pad=2.5, w_pad=2.5)
         plt.show()
 

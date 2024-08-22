@@ -38,11 +38,12 @@ code blocks for commands
 
 ## License
 
-This project is licensed under the [NAME HERE] License - see the LICENSE.md file for details
+This project is licensed under the CC-BY License
 
 ## Acknowledgments
-Alex Grafton, Lynn Thomson and Kathryn Beardsall for dataset collection
-Alex Grafton, Joana Warnecke and Joan Lasenby for supervision
+* Alex Grafton, Lynn Thomson and Kathryn Beardsall for dataset collection
+* Alex Grafton, Joana Warnecke and Joan Lasenby for supervision
+* Rosetrees Trust for funding of the clinical study
 
 
 
