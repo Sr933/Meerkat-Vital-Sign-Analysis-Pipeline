@@ -6,6 +6,8 @@ import scipy
 from sklearn import decomposition
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pandas as pd
+
 
 # Camera calibration parameters
 PX = 639.8630981445312
@@ -302,6 +304,8 @@ def coverage_probability(matched_ground_truth_signal, matched_reference_signal, 
     print(f"CP {kappa}%:", cp)
 
 
+
+
     
 def set_plot_params():
     #Set font parameters and return new colour cycle to use for plotting
@@ -327,3 +331,282 @@ def plot_prettifier(ax):
     ax.xaxis.set_ticks_position("bottom")
     ax.tick_params(axis="x", labelsize=14)
     ax.tick_params(axis="y", labelsize=14)
+    
+    
+'''
+Bland-Altman mean-difference plots
+
+Author: Joses Ho
+License: BSD-3
+'''
+
+import numpy as np
+
+import utils
+
+
+
+def mean_diff_plot(m1, m2, color, sd_limit=1.96, ax=None):
+    """
+    Construct a Tukey/Bland-Altman Mean Difference Plot.
+
+    Tukey's Mean Difference Plot (also known as a Bland-Altman plot) is a
+    graphical method to analyze the differences between two methods of
+    measurement. The mean of the measures is plotted against their difference.
+
+    For more information see
+    https://en.wikipedia.org/wiki/Bland-Altman_plot
+
+    Parameters
+    ----------
+    m1 : array_like
+        A 1-d array.
+    m2 : array_like
+        A 1-d array.
+    sd_limit : float
+        The limit of agreements expressed in terms of the standard deviation of
+        the differences. If `md` is the mean of the differences, and `sd` is
+        the standard deviation of those differences, then the limits of
+        agreement that will be plotted are md +/- sd_limit * sd.
+        The default of 1.96 will produce 95% confidence intervals for the means
+        of the differences. If sd_limit = 0, no limits will be plotted, and
+        the ylimit of the plot defaults to 3 standard deviations on either
+        side of the mean.
+    ax : AxesSubplot
+        If `ax` is None, then a figure is created. If an axis instance is
+        given, the mean difference plot is drawn on the axis.
+    scatter_kwds : dict
+        Options to to style the scatter plot. Accepts any keywords for the
+        matplotlib Axes.scatter plotting method
+    mean_line_kwds : dict
+        Options to to style the scatter plot. Accepts any keywords for the
+        matplotlib Axes.axhline plotting method
+    limit_lines_kwds : dict
+        Options to to style the scatter plot. Accepts any keywords for the
+        matplotlib Axes.axhline plotting method
+
+    Returns
+    -------
+    Figure
+        If `ax` is None, the created figure.  Otherwise the figure to which
+        `ax` is connected.
+
+    References
+    ----------
+    Bland JM, Altman DG (1986). "Statistical methods for assessing agreement
+    between two methods of clinical measurement"
+
+    Examples
+    --------
+
+    Load relevant libraries.
+
+    >>> import statsmodels.api as sm
+    >>> import numpy as np
+    >>> import matplotlib.pyplot as plt
+
+    Making a mean difference plot.
+
+    >>> # Seed the random number generator.
+    >>> # This ensures that the results below are reproducible.
+    >>> np.random.seed(9999)
+    >>> m1 = np.random.random(20)
+    >>> m2 = np.random.random(20)
+    >>> f, ax = plt.subplots(1, figsize = (8,5))
+    >>> sm.graphics.mean_diff_plot(m1, m2, ax = ax)
+    >>> plt.show()
+
+    .. plot:: plots/graphics-mean_diff_plot.py
+    """
+
+    if len(m1) != len(m2):
+        raise ValueError('m1 does not have the same length as m2.')
+    if sd_limit < 0:
+        raise ValueError(f'sd_limit ({sd_limit}) is less than 0.')
+
+    means = np.mean([m1, m2], axis=0)
+    diffs = m1 - m2
+    mean_diff = np.mean(diffs)
+    std_diff = np.std(diffs, axis=0)
+
+    
+    spacing=60
+    ax.scatter(means[::spacing], diffs[::spacing], color=color, s=2.5) # Plot the means against the diffs.
+    ax.axhline(mean_diff, color="k", linewidth=0.5)  # draw mean line.
+
+    # Annotate mean line with mean difference.
+    ax.annotate(f'mean diff:\n{np.round(mean_diff, 2)}',
+                xy=(0.99, 0.5),
+                horizontalalignment='right',
+                verticalalignment='center',
+                fontsize=8,
+                xycoords='axes fraction')
+
+    if sd_limit > 0:
+        half_ylim = (1.5 * sd_limit) * std_diff
+        ax.set_ylim(mean_diff - half_ylim,
+                    mean_diff + half_ylim)
+        limit_of_agreement = sd_limit * std_diff
+        lower = mean_diff - limit_of_agreement
+        upper = mean_diff + limit_of_agreement
+        for j, lim in enumerate([lower, upper]):
+            ax.axhline(lim, color="k", linewidth=0.5)
+        ax.annotate(f'-{sd_limit} SD: {lower:0.2g}',
+                    xy=(0.99, 0.07),
+                    horizontalalignment='right',
+                    verticalalignment='bottom',
+                    fontsize=8,
+                    xycoords='axes fraction')
+        ax.annotate(f'+{sd_limit} SD: {upper:0.2g}',
+                    xy=(0.99, 0.92),
+                    horizontalalignment='right',
+                    fontsize=8,
+                    xycoords='axes fraction')
+
+    elif sd_limit == 0:
+        half_ylim = 3 * std_diff
+        ax.set_ylim(mean_diff - half_ylim,
+                    mean_diff + half_ylim)
+
+    
+
+
+def vital_sign_summary_statistics(data_analysis_folder, vital_sign):
+    # Get all subjects in dataset
+    
+    subjects = []
+    truth = []
+    camera = []
+    subject_number = 0
+    for file in os.listdir(data_analysis_folder):
+        if "mk" in file:
+            subjects.append(os.fsdecode(file))
+
+    # Iterate over subjects to import all data
+    for subject in subjects:
+        # Define subject folder
+        subject_folder=os.path.join(data_analysis_folder, subject)
+        signal_folder=os.path.join(subject_folder, "Pipeline results")
+
+        # Try to import file, if not present skip the subject
+        try:
+            if os.listdir(signal_folder):
+                # Iterate over all files available to find the matching intermediate file
+                for file in os.listdir(signal_folder):
+                    if vital_sign in file:
+                        signal_filepath=os.path.join(signal_folder, file)
+
+                        # Iterate over file
+                        # Iterate over file
+                        df=pd.read_csv(signal_filepath)
+                        tr=df["Ground Truth Signal"].to_list()
+                        cam=df["Reference Signal"].to_list()
+                        
+                        [truth.append(t) for t in tr]
+                        [camera.append(c) for c in cam]
+                        subject_number += 1
+                        break
+
+        except:
+            continue
+    print(vital_sign)
+    print("Number of subjects: ", subject_number)
+    truth=np.asarray(truth)
+    camera=np.asarray(camera)
+    ##Summary statistics
+
+    kappa = 10 if "saturation" not in vital_sign else 3
+    if "POS" in vital_sign or "CHROM" in vital_sign:
+        kappa=5
+    coverage_probability(truth, camera, kappa=kappa)
+    kappa = kappa * 2
+    coverage_probability(truth, camera, kappa=kappa)
+    mean_absolute_diff(truth, camera)
+    mean_square_diff(truth, camera)
+
+    # Plot data
+    colors=set_plot_params()
+    fig, axs = plt.subplots(2, 2, figsize=(15, 8))
+
+    # BA plot
+    mean_diff_plot(camera, truth, ax=axs[0, 0], color=colors[0])
+    axs[0, 0].set_ylabel("Difference (/min)", fontsize=20)
+    axs[0, 0].set_xlabel("Means (/min)", fontsize=20)
+    axs[0, 0].set_title("(a) Bland Altman plot", fontsize=20)
+    plot_prettifier(axs[0,0])
+
+
+    ### Difference distribution
+    difference = camera - truth
+    bins = (
+        range(int(min(difference)), int(max(difference)) + 1, 1)
+        if "Tidal" not in vital_sign
+        else np.linspace(int(min(difference)), int(max(difference)), 36)
+    )
+    axs[0, 1].hist(difference, bins=bins, color=colors[0])
+    axs[0, 1].set_xlabel("Camera - Ground Truth (/min)", fontsize=20)
+    axs[0, 1].set_ylabel("Frequency", fontsize=20)
+    axs[0, 1].set_title("(b) Histogram of errors", fontsize=20)
+    plot_prettifier(axs[0,1])
+   
+
+
+    # Correlation plot with linear regression
+    spacing=60
+    axs[1, 0].scatter(truth[::spacing], camera[::spacing], color=colors[0],s=2.5)
+    axs[1, 0].set_ylabel("Camera (/min)", fontsize=20)
+    axs[1, 0].set_xlabel("Ground Truth (/min)", fontsize=20)
+    axs[1, 0].set_xlim(
+        min(min(truth), min(camera)) - 3, max(max(truth), max(camera)) + 3
+    )
+    axs[1, 0].set_ylim(
+        min(min(truth), min(camera)) - 3, max(max(truth), max(camera)) + 3
+    )
+    axs[1, 0].plot([0, 200], [00, 200], "k--", label="ideal fit")
+    axs[1, 0].legend(loc="upper left", fontsize=14, frameon=False)
+    axs[1, 0].set_title("(c) Correlation", fontsize=20)
+    plot_prettifier(axs[1,0])
+
+    # Calculate the coverage probability as a function of error
+    
+    
+    k_diff = 0.1 if  "Tidal" in vital_sign else 1
+    k=k_diff
+    kappas=[]
+    coverage_probability_array = []
+    i=0
+    while True:
+            cp = coverage_probability_abs(truth, camera, k) * 100
+            coverage_probability_array.append(cp)
+            kappas.append(k)
+            i += 1
+            k += k_diff
+            if cp > 95:
+                break
+           
+
+    axs[1, 1].plot(kappas, coverage_probability_array, color=colors[0])
+    axs[1, 1].set_xlabel("Absolute error (/min)", fontsize=20)
+    axs[1, 1].set_ylabel("Coverage probability (/min)", fontsize=20)
+    axs[1, 1].set_title("(d) Coverage probability", fontsize=20)
+    plot_prettifier(axs[1,1])
+
+
+    fig.align_ylabels()
+    plt.tight_layout(pad=2.5)
+    plt.show()
+
+
+def coverage_probability_abs(truth, test, kappa):
+    # Calculate proportion of values lying between the upper and lower acceptbale bounds
+    truth_upper = truth + kappa
+    truth_lower = truth - kappa
+    # Assuming truth, truth_lower, truth_upper, and test are numpy arrays
+    mask = (test > truth_lower) & (test < truth_upper)
+    count_in = np.sum(mask)
+    tdi = count_in / len(truth)
+    return tdi
+
+
+
+
