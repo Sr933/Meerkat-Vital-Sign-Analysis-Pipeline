@@ -12,6 +12,7 @@ from scipy.stats import norm
 import shutil
 import csv
 from sklearn import decomposition
+import sys
 
 
 class BreathingAsymmetryPipeline:
@@ -140,7 +141,7 @@ class BreathingAsymmetryPipeline:
 
         valid_peaks = np.array(valid_peaks)
 
-        interval_num=int((len((signal)) - self.interval_length) / 30)
+        interval_num = int((len((signal)) - self.interval_length) / 30)
         for i in range(interval_num):
             result = np.where(
                 np.logical_and(
@@ -151,7 +152,7 @@ class BreathingAsymmetryPipeline:
             if n > 0:
                 volume_i = np.mean(valid_tidal_volumes[result])
             else:
-                volume_i=intervall_volumes[-1] if len(intervall_volumes)>0 else 0.1
+                volume_i = intervall_volumes[-1] if len(intervall_volumes) > 0 else 0.1
             intervall_volumes.append(volume_i)
         return intervall_volumes
 
@@ -165,7 +166,7 @@ class BreathingAsymmetryPipeline:
             self.ts1[-1],
             num=len(self.left_volumes_windowed),
         )
-        
+
     def calculate_asymmetry(self):
         # Calculate the asymmetry score
         self.asymmetry_score = (
@@ -214,15 +215,10 @@ class BreathingAsymmetryPipeline:
         return data
 
 
-
-
-
-
-
-
-
 class FlowVolumeLoopPipeline:
-    def __init__(self, data_analysis_folder="", hasventilator=False, plot_single_loops_flag=False):
+    def __init__(
+        self, data_analysis_folder="", hasventilator=False, plot_single_loops_flag=False
+    ):
         """
         Initializes the CalculateFlowVolumeLoop class with the provided parameters.
 
@@ -233,19 +229,18 @@ class FlowVolumeLoopPipeline:
         """
         # Path to the data analysis folder
         self.data_analysis_folder = data_analysis_folder
-        
+
         # Flag indicating the presence of ventilator data
         self.hasventilator = hasventilator
-        
+
         # Flag for plotting individual loops
         self.plot_single_loops_flag = plot_single_loops_flag
-        
+
         # Placeholder for the path to the intermediate file
         self.intermediate_file = None
-        
+
         # Placeholder for the path to the intermediate folder
         self.intermediate_folder = None
-
 
     def run_part1(self):
         # Select subject folder and preprocess data if ventilator data is available
@@ -284,7 +279,7 @@ class FlowVolumeLoopPipeline:
         camera_file = os.listdir(camera_folder)[0]
         camera_filepath = os.path.join(camera_folder, camera_file)
         df = pd.read_csv(camera_filepath)
-        
+
         # Load required data from df into numpy arrays
         self.ts1 = df["Time (s)"].to_numpy()
         self.average_depth = df[" Depth"].to_numpy()
@@ -321,11 +316,11 @@ class FlowVolumeLoopPipeline:
         if os.path.exists(self.intermediate_folder):
             shutil.rmtree(self.intermediate_folder)
         os.makedirs(self.intermediate_folder)
-        
+
         self.intermediate_file = os.path.join(
             self.intermediate_folder, "pipeline intermediate.csv"
         )
-        
+
         # Write file
         with open(self.intermediate_file, "w", newline="") as file:
             writer = csv.writer(file)
@@ -338,7 +333,7 @@ class FlowVolumeLoopPipeline:
         """
         Preprocesses the respiratory data by performing PCA on depth signals and calculating the flow.
 
-        This function processes depth signals from different regions, applies PCA to obtain a combined 
+        This function processes depth signals from different regions, applies PCA to obtain a combined
         signal, calculates the flow by numerical differentiation, and identifies valid tidal volumes.
         """
         # Dictionary to store depth signals from different regions
@@ -372,20 +367,17 @@ class FlowVolumeLoopPipeline:
 
         # Avoid division by zero by setting zero counts to one
         signal_number = np.where(signal_number == 0, 1, signal_number)
-        
+
         # Calculate the final PCA signal by averaging the valid signals
         self.PCA_signal_vol = signal_sum / signal_number
 
         # Calculate flow by numerical differentiation
         self.calculate_flow()
-        
+
         # Identify valid tidal volumes and related statistics
         self.valid_peaks, self.valid_tidal_volumes, self.mean, self.std = (
-            MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(
-                self.PCA_signal_vol
-            )
+            MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(self.PCA_signal_vol)
         )
-
 
     def calculate_flow(self):
         # Calculate flow from the PCA signal
@@ -407,14 +399,15 @@ class FlowVolumeLoopPipeline:
             abs(breath_flow[-1]) < 20,
             abs(breath_flow[0]) < 20,
             abs(breath_volume[-1]) < 1,
-            self.mean - self.std < max(np.absolute(breath_volume)) < self.mean + self.std,
+            self.mean - self.std
+            < max(np.absolute(breath_volume))
+            < self.mean + self.std,
             flow_crossings < 3,
             max(np.abs(breath_flow)) < 40,
-            min(breath_volume) < -2
+            min(breath_volume) < -2,
         )
 
         return all(conditions)
-
 
     def camera_loop_calc(self, j):
         # Calculate flow-volume loop from camera data
@@ -426,7 +419,7 @@ class FlowVolumeLoopPipeline:
         )
         flow_crossings = ((breath_flow[:-1] * breath_flow[1:]) < 0).sum()
         return breath_volume, breath_flow, flow_crossings
-    
+
     def ventilator_loop_calc(self, j):
         # Calculate flow-volume loop from ventilator data
         breath_volume = [0]
@@ -438,15 +431,13 @@ class FlowVolumeLoopPipeline:
             )
             * 1000
             / 60
-        ) # Unit conversion needed
+        )  # Unit conversion needed
         breath_time = np.array(
-            self.ventilator_time[
-                int(self.breath_start[j]) : int(self.breath_end[j])
-            ]
+            self.ventilator_time[int(self.breath_start[j]) : int(self.breath_end[j])]
         )
-            
+
         flow_crossings = ((breath_flow[:-1] * breath_flow[1:]) < 0).sum()
-        
+
         # Calculate time differences between consecutive elements
         time_diff = np.diff(breath_time)
 
@@ -457,8 +448,10 @@ class FlowVolumeLoopPipeline:
         incremental_volume = time_diff * avg_flow
 
         # Accumulate the incremental volumes to get the total volume at each step
-        breath_volume = np.concatenate(([breath_volume[0]], np.cumsum(incremental_volume) + breath_volume[0]))
-      
+        breath_volume = np.concatenate(
+            ([breath_volume[0]], np.cumsum(incremental_volume) + breath_volume[0])
+        )
+
         return breath_volume, breath_flow, flow_crossings
 
     def plot_data(self):
@@ -476,7 +469,7 @@ class FlowVolumeLoopPipeline:
             fig, (ax1) = plt.subplots(1, 1, figsize=(7.5, 6))
 
         # Iterate over peaks and calculate flow-volume loop for each peak
-        breath_number=len(self.valid_peaks) - 1
+        breath_number = len(self.valid_peaks) - 1
         for j in range(breath_number):
             breath_volume, breath_flow, flow_crossings = self.camera_loop_calc(j)
             # Criteria for fv loop visualisation
@@ -492,16 +485,16 @@ class FlowVolumeLoopPipeline:
         # Calculate ventilator loop
         if self.hasventilator:
             # Iterate over peaks and calculate flow volume loop
-            ventilator_breath_number=len(self.breath_start) - 1
+            ventilator_breath_number = len(self.breath_start) - 1
             for j in range(ventilator_breath_number):
-                    breath_volume, breath_flow, flow_crossings = self.ventilator_loop_calc(j)
-                    # Criteria for fv loop visualisation
-                    if self.valid_loop(
-                        breath_flow, breath_volume, flow_crossings
-                    ):
-                        ax2.plot(breath_volume, breath_flow, color=colors[j % 10])
-                        self.ventilator_loops_volume.append(breath_volume)
-                        self.ventilator_loops_flow.append(breath_flow)
+                breath_volume, breath_flow, flow_crossings = self.ventilator_loop_calc(
+                    j
+                )
+                # Criteria for fv loop visualisation
+                if self.valid_loop(breath_flow, breath_volume, flow_crossings):
+                    ax2.plot(breath_volume, breath_flow, color=colors[j % 10])
+                    self.ventilator_loops_volume.append(breath_volume)
+                    self.ventilator_loops_flow.append(breath_flow)
 
             # Define plot parameters
             self.set_fv_plot_params(ax2)
@@ -512,21 +505,33 @@ class FlowVolumeLoopPipeline:
     def plot_single_loops(self):
         # Plot parameters
         colors = MeerkatPipelineHelperfunctions.set_plot_params()
-        camera_breath_number=len(self.valid_peaks)-1
+        camera_breath_number = len(self.valid_peaks) - 1
         for i in range(camera_breath_number):
             camera_peak_t = self.ts1[i]
-            ventilator_breath_number=len(self.breath_start) - 1
+            ventilator_breath_number = len(self.breath_start) - 1
             for j in range(ventilator_breath_number):
                 ventilator_peak_t = self.ventilator_time[int(self.breath_start[j])]
                 if abs(camera_peak_t - ventilator_peak_t) < 2.0:
 
-                    breath_volume_camera, breath_flow_camera, flow_crossings_camera = self.camera_loop_calc(i)
-                    breath_volume_ventilator, breath_flow_ventilator, flow_crossings_ventilator = self.ventilator_loop_calc(j)
-                    
+                    breath_volume_camera, breath_flow_camera, flow_crossings_camera = (
+                        self.camera_loop_calc(i)
+                    )
+                    (
+                        breath_volume_ventilator,
+                        breath_flow_ventilator,
+                        flow_crossings_ventilator,
+                    ) = self.ventilator_loop_calc(j)
+
                     # Define plot parameters
-            
+
                     # Show loops if both loops are considered valid
-                    if self.valid_loop(breath_flow_camera, breath_volume_camera, flow_crossings_camera) and self.valid_loop(breath_flow_ventilator, breath_volume_ventilator, flow_crossings_ventilator):
+                    if self.valid_loop(
+                        breath_flow_camera, breath_volume_camera, flow_crossings_camera
+                    ) and self.valid_loop(
+                        breath_flow_ventilator,
+                        breath_volume_ventilator,
+                        flow_crossings_ventilator,
+                    ):
                         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
                         # Define plot parameters
@@ -534,9 +539,15 @@ class FlowVolumeLoopPipeline:
                         ax1.set_title("Camera", fontsize=20)
                         self.set_fv_plot_params(ax2)
                         ax2.set_title("Ventilator", fontsize=20)
-                        
-                        ax1.plot(breath_volume_camera, breath_flow_camera, color=colors[0])
-                        ax2.plot(breath_volume_ventilator, breath_flow_ventilator, color=colors[0])
+
+                        ax1.plot(
+                            breath_volume_camera, breath_flow_camera, color=colors[0]
+                        )
+                        ax2.plot(
+                            breath_volume_ventilator,
+                            breath_flow_ventilator,
+                            color=colors[0],
+                        )
                         plt.tight_layout(pad=2.5, w_pad=2.5)
                         plt.show()
 
@@ -557,26 +568,24 @@ class FlowVolumeLoopPipeline:
                 - "Camera loops flow" (array): Flow data from the camera loops.
                 - "Camera loops volume" (array): Volume data from the camera loops.
         """
-        
+
         # Create a dictionary to store the flow and volume data for both ventilator and camera loops.
         data = {
-            "Ventilator loops flow": self.ventilator_loops_flow,   # Flow data from ventilator loops.
-            "Ventilator loops volume": self.ventilator_loops_volume, # Volume data from ventilator loops.
-            "Camera loops flow": self.camera_loops_flow,           # Flow data from camera loops.
-            "Camera loops volume": self.camera_loops_volume,       # Volume data from camera loops.
+            "Ventilator loops flow": self.ventilator_loops_flow,  # Flow data from ventilator loops.
+            "Ventilator loops volume": self.ventilator_loops_volume,  # Volume data from ventilator loops.
+            "Camera loops flow": self.camera_loops_flow,  # Flow data from camera loops.
+            "Camera loops volume": self.camera_loops_volume,  # Volume data from camera loops.
         }
         return data
-
-
 
 
 class HeartRatePipeline:
     def __init__(self, data_analysis_folder="", interval_length=3600):
         """
-        Initialize the CalculateHeartRate class with default parameters.
+        Initialize the HeartRatePipeline class with default parameters.
 
         Args:
-            intervall_length (int): Length of the interval in seconds.
+            interval_length (int): Length of the interval in seconds.
             data_analysis_folder (str): Path to the folder containing data to analyze.
         """
         self.interval_length = interval_length
@@ -604,14 +613,10 @@ class HeartRatePipeline:
         self.POS_signal()
 
         # Calculate heart rate from POS and CHROM signals using peak counting
-        self.heart_rate_CHROM = self.find_heart_rate(
-            self.heart_rate_signal_CHROM
-        )
-        self.heart_rate_POS = self.find_heart_rate(
-            self.heart_rate_signal_POS_filtered
-        )
+        self.heart_rate_CHROM = self.find_heart_rate(self.heart_rate_signal_CHROM)
+        self.heart_rate_POS = self.find_heart_rate(self.heart_rate_signal_POS_filtered)
         self.generate_timestamps(self.heart_rate_signal_CHROM)
-        
+
         # Calculate heart rate from POS and CHROM signals using Fourier analysis with Bayesian Inference
         self.CHROM_fourier = self.fourier_heart_rate(self.heart_rate_signal_CHROM)
         self.POS_fourier = self.fourier_heart_rate(self.heart_rate_signal_POS)
@@ -627,18 +632,22 @@ class HeartRatePipeline:
             "POS_kalman_peaks": self.heart_rate_POS,
             "CHROM_kalman_fourier": self.CHROM_fourier,
             "POS_kalman_fourier": self.POS_fourier,
-            "ECG_kalman": self.ECG_rate
+            "ECG_kalman": self.ECG_rate,
         }
 
         # Apply the Kalman filter to each signal and assign the result to the corresponding attribute
         for signal in self.signals:
-            self.signals[signal]=MeerkatPipelineHelperfunctions.Kalman_filter(self.signals[signal], process_noise, measurement_noise, initial_estimate_error)
-
+            self.signals[signal] = MeerkatPipelineHelperfunctions.Kalman_filter(
+                self.signals[signal],
+                process_noise,
+                measurement_noise,
+                initial_estimate_error,
+            )
 
     def import_ECG_rate(self):
         # Define ECG file folder
         hr_folder = os.path.join(self.subject_folder, "ECG heart rate")
- 
+
         if os.listdir(hr_folder):  # if file exists import data from it
             hr_file = os.path.join(hr_folder, os.listdir(hr_folder)[0])
             # Load data from csv
@@ -652,16 +661,16 @@ class HeartRatePipeline:
     def import_heart_camera_data(self):
         # Define camera filepath
         camera_folder = os.path.join(self.subject_folder, "RGB-D camera video data")
-        camera_file=os.path.join(camera_folder, os.listdir(camera_folder)[0])
-        
+        camera_file = os.path.join(camera_folder, os.listdir(camera_folder)[0])
+
         # Load data from csv file
         df = pd.read_csv(camera_file)
         self.ts1 = df["Time (s)"].to_numpy()
         self.red_signal = df[" Red"].to_numpy()
         self.green_signal = df[" Green"].to_numpy()
         self.blue_signal = df[" Blue"].to_numpy()
-        
-        #Calculate mean values
+
+        # Calculate mean values
         self.mean_red = np.mean(self.red_signal)
         self.mean_blue = np.mean(self.blue_signal)
         self.mean_green = np.mean(self.green_signal)
@@ -672,7 +681,7 @@ class HeartRatePipeline:
         https://ieeexplore.ieee.org/document/6523142
 
         The method processes red, green, and blue signals to compute a heart rate signal
-        based on the CHROM algorithm. It involves standardizing color channels, 
+        based on the CHROM algorithm. It involves standardizing color channels,
         constructing orthogonal channels, filtering, and calculating the final signal.
         """
 
@@ -688,7 +697,7 @@ class HeartRatePipeline:
         # Bandpass filter orthogonal channels
         X_f = sosfiltfilt(self.butter, X)
         Y_f = sosfiltfilt(self.butter, Y)
-        
+
         # Calculate the alpha coefficient
         alpha = np.std(X_f) / np.std(Y_f)
 
@@ -739,12 +748,13 @@ class HeartRatePipeline:
                     )
         # Filter final signal
         self.heart_rate_signal_POS_filtered = sosfiltfilt(
-            self.butter, self.heart_rate_signal_POS)
+            self.butter, self.heart_rate_signal_POS
+        )
 
     def find_heart_rate(self, heart_rate_signal):
         # Find peaks in signal
         peaks, _ = find_peaks(heart_rate_signal, distance=6, height=0)
-    
+
         # Define the number of intervals
         num_intervals = int((len(heart_rate_signal) - self.interval_length) / 30)
 
@@ -763,17 +773,19 @@ class HeartRatePipeline:
             # Find peaks within the current interval
             mask = (peaks >= start) & (peaks <= end)
             interval_peaks = peaks[mask]
-            
+
             if len(interval_peaks) > 1:
                 first_peak = interval_peaks[0]
                 last_peak = interval_peaks[-1]
-                peak_num= (len(interval_peaks) - 1) * 60 / (last_peak - first_peak) * 30
-       
+                peak_num = (
+                    (len(interval_peaks) - 1) * 60 / (last_peak - first_peak) * 30
+                )
+
             else:
-                peak_num=interval_peaks[idx-1] if idx>0 else 0
-            intervall_peak_numbers[idx]=peak_num #default value
+                peak_num = interval_peaks[idx - 1] if idx > 0 else 0
+            intervall_peak_numbers[idx] = peak_num  # default value
         return intervall_peak_numbers
-    
+
     def generate_timestamps(self, heart_rate_signal):
         # Calculate timestamps of intervalls
         self.timestamps = np.linspace(
@@ -781,12 +793,10 @@ class HeartRatePipeline:
             self.ts1[-1],
             num=int((len((heart_rate_signal)) - self.interval_length) / 30),
         )
-       
 
     def fourier_heart_rate(self, signal):
         # Preprocessing of data using bandpass filter and timeseries PCA
 
-        
         num_intervals = int((len(signal) - self.interval_length) / 30)
         fourier_rate = np.zeros(num_intervals)
         for i in range(num_intervals):
@@ -795,7 +805,7 @@ class HeartRatePipeline:
             n = len(window_signal)
             t = np.arange(n)
             w = hamming(n)
-            
+
             # Perfor frequency analysis
             yf = np.abs(fft(window_signal * w))
             xf = fftfreq(t.shape[-1], 1 / 1800)
@@ -803,10 +813,10 @@ class HeartRatePipeline:
             # Perform inference on resp rate using prior of expected frequency and likelihood of Fourier coefficient
             mean = 155
             std = 15
-            
+
             resp_gaussian = norm.pdf(xf, mean, std)
             yf = np.multiply(yf, resp_gaussian)
-            fourier_rate[i]=xf[np.where(yf == np.max(yf))[0][0]]
+            fourier_rate[i] = xf[np.where(yf == np.max(yf))[0][0]]
         return fourier_rate
 
     def plot_data(self):
@@ -817,9 +827,11 @@ class HeartRatePipeline:
         1. Peak HR of POS and CHROM signals against ECG.
         2. Fourier HR of POS and CHROM signals, along with their average, against ECG.
         """
-        
+
         # Calculate average of CHROM and POS
-        self.average = (self.signals["CHROM_kalman_fourier"] + self.signals["POS_kalman_fourier"]) / 2
+        self.average = (
+            self.signals["CHROM_kalman_fourier"] + self.signals["POS_kalman_fourier"]
+        ) / 2
 
         # Define plot parameters
         colors = MeerkatPipelineHelperfunctions.set_plot_params()
@@ -845,9 +857,24 @@ class HeartRatePipeline:
             ax (matplotlib.axes.Axes): The axis on which to plot the data.
             colors (list): List of colors for the plot.
         """
-        ax.plot(self.ECG_timestamps, self.signals["ECG_kalman"], label="ECG", color=colors[0])
-        ax.plot(self.timestamps, self.signals["POS_kalman_peaks"], label="Peak POS", color=colors[1])
-        ax.plot(self.timestamps, self.signals["CHROM_kalman_peaks"], label="Peak CHROM", color=colors[2])
+        ax.plot(
+            self.ECG_timestamps,
+            self.signals["ECG_kalman"],
+            label="ECG",
+            color=colors[0],
+        )
+        ax.plot(
+            self.timestamps,
+            self.signals["POS_kalman_peaks"],
+            label="Peak POS",
+            color=colors[1],
+        )
+        ax.plot(
+            self.timestamps,
+            self.signals["CHROM_kalman_peaks"],
+            label="Peak CHROM",
+            color=colors[2],
+        )
         ax.legend(loc="lower center", fontsize=14, frameon=False, ncol=3)
         ax.set_title("Peak counting", fontsize=20)
         self.set_hr_plot_params(ax)
@@ -860,31 +887,46 @@ class HeartRatePipeline:
             ax (matplotlib.axes.Axes): The axis on which to plot the data.
             colors (list): List of colors for the plot.
         """
-        ax.plot(self.ECG_timestamps, self.signals["ECG_kalman"], label="ECG", color=colors[0])
-        ax.plot(self.timestamps, self.signals["POS_kalman_fourier"], label="Fourier POS", color=colors[1])
-        ax.plot(self.timestamps, self.signals["CHROM_kalman_fourier"], label="Fourier CHROM", color=colors[2])
-        ax.plot(self.timestamps, self.average, label="POS CHROM Average", color=colors[3])
+        ax.plot(
+            self.ECG_timestamps,
+            self.signals["ECG_kalman"],
+            label="ECG",
+            color=colors[0],
+        )
+        ax.plot(
+            self.timestamps,
+            self.signals["POS_kalman_fourier"],
+            label="Fourier POS",
+            color=colors[1],
+        )
+        ax.plot(
+            self.timestamps,
+            self.signals["CHROM_kalman_fourier"],
+            label="Fourier CHROM",
+            color=colors[2],
+        )
+        ax.plot(
+            self.timestamps, self.average, label="POS CHROM Average", color=colors[3]
+        )
         ax.legend(loc="lower center", fontsize=14, frameon=False, ncol=2)
         ax.set_title("Fourier", fontsize=20)
         self.set_hr_plot_params(ax)
 
-            
     def set_hr_plot_params(self, ax):
         ax.set_ylabel("Heart rate (bpm)", fontsize=20)
         ax.set_xlabel("Time (s)", fontsize=20)
         ax.set_ylim(100, 200)
         MeerkatPipelineHelperfunctions.plot_prettifier(ax)
-        
 
     def statistical_analysis(self):
         """
         Perform statistical analysis for each signal and write intermediate files.
         """
-        
+
         def run_analysis(vital_sign, reference_signal):
             """
             Helper function to configure and run the statistical analysis.
-            
+
             Args:
                 vital_sign (str): Description of the vital sign for the analysis.
                 reference_signal (array): The reference signal for the analysis.
@@ -898,14 +940,13 @@ class HeartRatePipeline:
             analysis.reference_signal = reference_signal
             analysis.reference_timestamps = self.timestamps
             analysis.run()
-        
+
         # Run the statistical analyses
         run_analysis("POS_Peak_counting", self.signals["POS_kalman_peaks"])
         run_analysis("CHROM_Peak_counting", self.signals["CHROM_kalman_peaks"])
         run_analysis("POS_Fourier_analysis", self.signals["POS_kalman_fourier"])
         run_analysis("CHROM_Fourier_analysis", self.signals["CHROM_kalman_fourier"])
         run_analysis("CHROM_POS", self.average)
-
 
     def return_data(self):
         """
@@ -922,21 +963,28 @@ class HeartRatePipeline:
                 - "Timestamps" (array): General timestamps for the data.
                 - "Average" (array): Average of the POS and CHROM signals.
         """
-        
+
         # Create a dictionary to store the data attributes
         data = {
-            "ECG timestamps": self.ECG_timestamps,       # Timestamps corresponding to the ECG data
-            "ECG rate": self.signals["ECG_kalman"],                   # ECG rate data
-            "POS kalman fourier": self.signals["POS_kalman__fourier"],               # Processed POS signal data
-            "CHROM kalman fourier": self.signals["CHROM_kalman_fourier"],           # Processed CHROM signal data
-            "POS kalman peaks": self.signals["POS_kalman_peaks"],   # Detected peaks in the POS signal
-            "CHROM kalman peaks": self.signals["CHROM_kalman_peaks"], # Detected peaks in the CHROM signal
-            "Timestamps": self.timestamps,               # General timestamps for the data
-            "Average": self.average                      # Average of the POS and CHROM signals
+            "ECG timestamps": self.ECG_timestamps,  # Timestamps corresponding to the ECG data
+            "ECG rate": self.signals["ECG_kalman"],  # ECG rate data
+            "POS kalman fourier": self.signals[
+                "POS_kalman__fourier"
+            ],  # Processed POS signal data
+            "CHROM kalman fourier": self.signals[
+                "CHROM_kalman_fourier"
+            ],  # Processed CHROM signal data
+            "POS kalman peaks": self.signals[
+                "POS_kalman_peaks"
+            ],  # Detected peaks in the POS signal
+            "CHROM kalman peaks": self.signals[
+                "CHROM_kalman_peaks"
+            ],  # Detected peaks in the CHROM signal
+            "Timestamps": self.timestamps,  # General timestamps for the data
+            "Average": self.average,  # Average of the POS and CHROM signals
         }
-        
-        return data
 
+        return data
 
 
 class PulseOxygenationPipeline:
@@ -1095,7 +1143,7 @@ class PulseOxygenationPipeline:
         self.rr_ycgcr = np.divide(np.log(cr_ac_signal), np.log(cg_ac_signal))
         # Create a boolean mask for out-of-range values
         out_of_range = (self.rr_ycgcr < 0) | (self.rr_ycgcr > 1.8)
-        
+
         # Replace out-of-range values with NaN for interpolation
         self.rr_ycgcr[out_of_range] = np.nan
 
@@ -1134,14 +1182,15 @@ class PulseOxygenationPipeline:
 
         # Calculate SpO2 truncate at 100
         self.spO2_infrared = 100 + 20 / 6 - 20 / 3 * self.rr_signal_infrared
-        
-        self.spO2_infrared=self.clamp_spO2(self.spO2_infrared)
+
+        self.spO2_infrared = self.clamp_spO2(self.spO2_infrared)
         self.spO2_infrared = MeerkatPipelineHelperfunctions.Kalman_filter(
             self.spO2_infrared,
             self.process_noise,
             self.measurement_noise,
             self.initial_estimate_error,
         )
+
     def generate_timestamps(self):
         # Define timestamps for bins
         self.time_spO2 = np.linspace(
@@ -1152,7 +1201,7 @@ class PulseOxygenationPipeline:
         self.timestamps_spO2_calibrated = np.linspace(
             self.ts1[self.interval_length], self.ts1[-1], num=len(self.spO2_calibrated)
         )
-    
+
     def PCA_oxygenation(self):
         # Based on https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10712673/
         # Perform signal extraction using PCA from shallow layer
@@ -1218,7 +1267,7 @@ class PulseOxygenationPipeline:
 
     def clamp_spO2(self, signal):
         """
-        Clamps the values in self.spO2_ycgcr to be within the range [70, 100].
+        Clamps the values in spO2 signal to be within the range [70, 100].
         """
         signal = np.clip(signal, 70, 100)
         return signal
@@ -1326,35 +1375,33 @@ class PulseOxygenationPipeline:
         return data
 
 
-
-
 class MeerkatStatisticalAnalysis:
     def __init__(self):
-            """
-            Initialize the MeerkatStatisticalAnalysis class with optional parameters.
-            
-            Parameters:
-            - ground_truth_signal: List of ground truth signal values.
-            - reference_signal: List of reference signal values.
-            - ground_truth_timestamps: List of timestamps for ground truth signals.
-            - reference_timestamps: List of timestamps for reference signals.
-            - kappa: Sensitivity parameter for statistical analysis.
-            - subject_folder: Directory path for saving results.
-            - vital_sign: Type of vital sign being analyzed.
-            - tidalvolumeflag: Flag indicating if tidal volume data is included.
-            - tidalvolumeupper: List of upper bounds for tidal volume.
-            - tidalvolumelower: List of lower bounds for tidal volume.
-            """
-            self.ground_truth_signal = []
-            self.reference_signal = []
-            self.ground_truth_timestamps = []
-            self.reference_timestamps = []
-            self.kappa = 10
-            self.subject_folder = ""
-            self.vital_sign = ""
-            self.tidalvolumeflag = False
-            self.tidalvolumeupper = []
-            self.tidalvolumelower = []
+        """
+        Initialize the MeerkatStatisticalAnalysis class with optional parameters.
+
+        Parameters:
+        - ground_truth_signal: List of ground truth signal values.
+        - reference_signal: List of reference signal values.
+        - ground_truth_timestamps: List of timestamps for ground truth signals.
+        - reference_timestamps: List of timestamps for reference signals.
+        - kappa: Sensitivity parameter for statistical analysis.
+        - subject_folder: Directory path for saving results.
+        - vital_sign: Type of vital sign being analyzed.
+        - tidalvolumeflag: Flag indicating if tidal volume data is included.
+        - tidalvolumeupper: List of upper bounds for tidal volume.
+        - tidalvolumelower: List of lower bounds for tidal volume.
+        """
+        self.ground_truth_signal = []
+        self.reference_signal = []
+        self.ground_truth_timestamps = []
+        self.reference_timestamps = []
+        self.kappa = 10
+        self.subject_folder = ""
+        self.vital_sign = ""
+        self.tidalvolumeflag = False
+        self.tidalvolumeupper = []
+        self.tidalvolumelower = []
 
     def run(self):
         # Function to tie all functions in class together
@@ -1412,11 +1459,9 @@ class MeerkatStatisticalAnalysis:
                             values_in_window.append(ground_truth_signal[j])
 
                     matched_ground_truth.append(np.mean(np.array(values_in_window)))
-                    matched_reference.append(
-                        (reference_signal[i])
-                    )  
+                    matched_reference.append((reference_signal[i]))
 
-        else :
+        else:
             for i in range(len(ground_truth_signal) - 1):
                 timestart = ground_truth_timestamps[i]
                 timeend = ground_truth_timestamps[i + 1]
@@ -1442,18 +1487,20 @@ class MeerkatStatisticalAnalysis:
     def save_matched_signals(self):
         output_folder = os.path.join(self.subject_folder, "Pipeline results")
         output_filepath = os.path.join(output_folder, self.vital_sign)
-        
+
         if os.path.exists(output_filepath):
             os.remove(output_filepath)
-        
-        with open(output_filepath, mode='w', newline='', encoding='utf-8') as file:
+
+        with open(output_filepath, mode="w", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
-            
+
             # Write the header
-            writer.writerow(['Ground Truth Signal', 'Reference Signal'])
-            
+            writer.writerow(["Ground Truth Signal", "Reference Signal"])
+
             # Write the data rows
-            for gt_signal, ref_signal in zip(self.matched_ground_truth_signal, self.matched_reference_signal):
+            for gt_signal, ref_signal in zip(
+                self.matched_ground_truth_signal, self.matched_reference_signal
+            ):
                 writer.writerow([gt_signal, ref_signal])
 
     def tidal_volume_matching(self):
@@ -1477,15 +1524,12 @@ class MeerkatStatisticalAnalysis:
                     self.truth_upper_lower[i] = self.tidalvolumeupper_matched[i]
 
 
-
-
-
 class RespiratoryPipeline:
     def __init__(
         self,
         data_analysis_folder="",
         intervall_length_resp=1800,
-        intervall_length_vol=1800
+        intervall_length_vol=1800,
     ):
         """
         Initialize the CalculateHeartRate class with default parameters.
@@ -1503,8 +1547,8 @@ class RespiratoryPipeline:
 
         # Flag to indicate ventilator data presence
         self.has_ventilator = False
-        
-         # Define the Kalman filter parameters
+
+        # Define the Kalman filter parameters
         self.process_noise = 0.0001
         self.measurement_noise = 0.00001
         self.initial_estimate_error_rate = 10
@@ -1543,14 +1587,23 @@ class RespiratoryPipeline:
 
         # Estimate the true state of the system with Kalman filters of the measurements
         self.kalman_breathing_rate = MeerkatPipelineHelperfunctions.Kalman_filter(
-            self.fourier_breathing_rate, self.process_noise, self.measurement_noise, self.initial_estimate_error_rate
+            self.fourier_breathing_rate,
+            self.process_noise,
+            self.measurement_noise,
+            self.initial_estimate_error_rate,
         )
         self.kalman_breathing_rate_peaks = MeerkatPipelineHelperfunctions.Kalman_filter(
-            self.intervall_resp_rate, self.process_noise, self.measurement_noise, self.initial_estimate_error_rate
+            self.intervall_resp_rate,
+            self.process_noise,
+            self.measurement_noise,
+            self.initial_estimate_error_rate,
         )
 
         self.intervall_volumes = MeerkatPipelineHelperfunctions.Kalman_filter(
-            self.intervall_volumes, self.process_noise, self.measurement_noise, self.initial_estimate_error_vol
+            self.intervall_volumes,
+            self.process_noise,
+            self.measurement_noise,
+            self.initial_estimate_error_vol,
         )
 
         if self.has_ventilator:
@@ -1572,21 +1625,33 @@ class RespiratoryPipeline:
             # Bin ventilator values to make them comparable
             self.ventilator_rate_windowed_values = (
                 MeerkatPipelineHelperfunctions.Kalman_filter(
-                    self.ventilator_rate_windowed_values, self.process_noise, self.measurement_noise, self.initial_estimate_error_rate
+                    self.ventilator_rate_windowed_values,
+                    self.process_noise,
+                    self.measurement_noise,
+                    self.initial_estimate_error_rate,
                 )
             )
 
             # Use the same Kalman filter as on the camera data for comparative results
             self.ventilator_volume_windowed_values = (
                 MeerkatPipelineHelperfunctions.Kalman_filter(
-                    self.ventilator_volume_windowed_values, self.process_noise, self.measurement_noise, self.initial_estimate_error_vol
+                    self.ventilator_volume_windowed_values,
+                    self.process_noise,
+                    self.measurement_noise,
+                    self.initial_estimate_error_vol,
                 )
             )
             self.v_in_w = MeerkatPipelineHelperfunctions.Kalman_filter(
-                self.v_in_w, self.process_noise, self.measurement_noise, self.initial_estimate_error_vol
+                self.v_in_w,
+                self.process_noise,
+                self.measurement_noise,
+                self.initial_estimate_error_vol,
             )
             self.v_ex_w = MeerkatPipelineHelperfunctions.Kalman_filter(
-                self.v_ex_w, self.process_noise, self.measurement_noise, self.initial_estimate_error_vol
+                self.v_ex_w,
+                self.process_noise,
+                self.measurement_noise,
+                self.initial_estimate_error_vol,
             )
 
     def generate_timestamps(self):
@@ -1643,12 +1708,9 @@ class RespiratoryPipeline:
         # Calculate the final PCA signal by averaging the valid signals
         self.PCA_signal_vol = signal_sum / signal_number
 
-
         # Identify valid tidal volumes and related statistics
         self.valid_peaks, self.valid_tidal_volumes, self.mean, self.std = (
-            MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(
-                self.PCA_signal_vol
-            )
+            MeerkatPipelineHelperfunctions.find_valid_tidal_volumes(self.PCA_signal_vol)
         )
 
     def import_camera_resp_data(self):
@@ -1738,23 +1800,31 @@ class RespiratoryPipeline:
             # Determine the range of peaks within the current interval
             start_idx = 30 * i
             end_idx = self.intervall_length_vol + 30 * i
-            result = np.where((self.valid_peaks >= start_idx) & (self.valid_peaks <= end_idx))[0]
+            result = np.where(
+                (self.valid_peaks >= start_idx) & (self.valid_peaks <= end_idx)
+            )[0]
 
             # Calculate respiratory rate and volume if peaks are found
             if len(result) > 1:
                 first_peak = self.valid_peaks[result[0]]
                 last_peak = self.valid_peaks[result[-1]]
-                self.intervall_resp_rate[i] = (len(result) - 1) / (last_peak - first_peak) * 1800 #60s * 30 Hz
+                self.intervall_resp_rate[i] = (
+                    (len(result) - 1) / (last_peak - first_peak) * 1800
+                )  # 60s * 30 Hz
                 self.intervall_volumes[i] = np.mean(self.valid_tidal_volumes[result])
             else:
                 # Assign previous values or defaults if no peaks are found
-                self.intervall_resp_rate[i] = self.intervall_resp_rate[i-1] if i > 0 else 0
-                self.intervall_volumes[i] = self.intervall_volumes[i-1] if i > 0 else 0
+                self.intervall_resp_rate[i] = (
+                    self.intervall_resp_rate[i - 1] if i > 0 else 0
+                )
+                self.intervall_volumes[i] = (
+                    self.intervall_volumes[i - 1] if i > 0 else 0
+                )
 
     def respiratory_rate_fourier(self):
         self.fourier_breathing_rate = []
         peaks_in_bins = []
-        
+
         num_intervalls = int(
             ((len(self.PCA_signal_resp)) - self.intervall_length_resp) / 30
         )
@@ -1785,8 +1855,7 @@ class RespiratoryPipeline:
             else:  # Prior based on known distribution of breaths
                 mean = 50
                 std = 20
-                
-                
+
             resp_gaussian = norm.pdf(xf, mean, std)
             yf = np.multiply(yf, resp_gaussian)
             self.fourier_breathing_rate.append(xf[np.where(yf == np.max(yf))[0][0]])
