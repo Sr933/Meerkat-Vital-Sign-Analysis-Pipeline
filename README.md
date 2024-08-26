@@ -4,31 +4,23 @@ Dataset and Analysis Pipeline to estimate vital signs of neonates from RGB-D dat
 
 ## Description
 
-An in-depth paragraph about your project and overview of use.
-
 Pipeline elements can be ran directly from main.ipynb.
 Dataset is structured by patients containing one folder for each of the files.
+On running a pipeline, the subject is selected from a list of available subjects.
 Empty folder indicate unavailable/invalid signals.
 
 ## Getting Started
 
+* Dataset can be downloaded from Apollo: https://doi.org/10.17863/CAM.111417
+* Database path in main.ipynb needs to be changed to the corresponding location
+
 ### Dependencies
 
-* Describe any prerequisites, libraries, OS version, etc., needed before installing program.
-* ex. Windows 10
+* Python 3.11.5
+* Tested on Windows 11
 
-### Installing
 
-* How/where to download your program
-* Any modifications needed to be made to files/folders
 
-### Executing program
-
-* How to run the program
-* Step-by-step bullets
-```
-code blocks for commands
-```
 
 ## Authors
 
