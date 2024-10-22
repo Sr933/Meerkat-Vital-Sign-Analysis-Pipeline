@@ -16,8 +16,14 @@ Empty folder indicate unavailable/invalid signals.
 
 ### Dependencies
 
-* Python 3.11.5
-* Tested on Windows 11
+* Python (version 3.11.5)
+* NumPy (version 1.25.2)
+* SciPy (version 1.11.2)
+* scikit-learn (version 1.3.1)
+* simdkalman (1.0.4)
+* ventiliser (version 1.0.0)
+* Matplotlib (version 3.8.0)
+* seaborn (version 0.13.0) 
 
 
 

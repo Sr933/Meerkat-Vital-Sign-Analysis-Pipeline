@@ -13,6 +13,7 @@ import shutil
 import csv
 from sklearn import decomposition
 import sys
+from modified_ventiliser import GeneralPipeline
 
 
 class BreathingAsymmetryPipeline:
@@ -242,18 +243,20 @@ class FlowVolumeLoopPipeline:
         # Placeholder for the path to the intermediate folder
         self.intermediate_folder = None
 
-    def run_part1(self):
+    def run(self):
         # Select subject folder and preprocess data if ventilator data is available
         self.subject_folder = MeerkatPipelineHelperfunctions.choose_subject(
             self.data_analysis_folder
         )
         self.preprocess_data_intermediate()
-        return (self.intermediate_file, True) if self.hasventilator else (None, False)
-
-    def run_part2(self):
+        #Run ventiliser
+        if self.hasventilator:
+            pipeline = GeneralPipeline()
+            pipeline.configure() # For information on parameters you can configure see docs
+            pipeline.load_data(self.intermediate_file, [0,1,2]) # [0,1,2] refers to the columns in your data file corresponding to time, pressure, flow
+            pipeline.process()
         # Continue preprocessing after running ventiliser package and plotting data
         self.preprocess_data()
-
         if self.hasventilator:
             self.import_ventiliser_results()
         if self.plot_single_loops_flag and self.hasventilator:
