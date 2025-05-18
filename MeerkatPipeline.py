@@ -972,7 +972,7 @@ class HeartRatePipeline:
             "ECG timestamps": self.ECG_timestamps,  # Timestamps corresponding to the ECG data
             "ECG rate": self.signals["ECG_kalman"],  # ECG rate data
             "POS kalman fourier": self.signals[
-                "POS_kalman__fourier"
+                "POS_kalman_fourier"
             ],  # Processed POS signal data
             "CHROM kalman fourier": self.signals[
                 "CHROM_kalman_fourier"
@@ -1567,6 +1567,11 @@ class RespiratoryPipeline:
         # Statistical comparison to ground truth from ventilator only available for some subjects
         if self.has_ventilator:
             self.statistical_analysis()
+            
+        elif self.has_impedance:
+            self.statistical_analysis_impedance()
+        else:
+            print("No ground truth data available!")
 
     def load__and_process_data(self):
         # Load data from camera and ventilator
@@ -1656,6 +1661,19 @@ class RespiratoryPipeline:
                 self.measurement_noise,
                 self.initial_estimate_error_vol,
             )
+        else:
+            self.load_impedance_rate_data()
+            if self.has_impedance:
+                self.impedance_rate_in_window()
+                self.impedance_rate_windowed_values = (
+                MeerkatPipelineHelperfunctions.Kalman_filter(
+                    self.impedance_rate_windowed_values,
+                    self.process_noise,
+                    self.measurement_noise,
+                    self.initial_estimate_error_rate+5,
+                )
+                )
+            
 
     def generate_timestamps(self):
         self.timestamps_intervalls_rate = np.linspace(
@@ -1776,6 +1794,27 @@ class RespiratoryPipeline:
             self.ventilator_volume_exhalation = df3[" VT_Expiration (ml)"].to_numpy()
             self.ventilator_volume_inhalation = df3[" VT_Inspiration (ml)"].to_numpy()
 
+    def load_impedance_rate_data(self):
+        # Define Impedance file folder
+        imp_folder = os.path.join(self.subject_folder, "Impedance respiratory rate")
+
+        if os.listdir(imp_folder):  # if file exists import data from it
+            imp_file = os.path.join(imp_folder, os.listdir(imp_folder)[0])
+            # Load data from csv
+            df = pd.read_csv(imp_file)
+
+            # Filter data within the range of self.ts1
+            time_min = self.ts1[0]
+            time_max = self.ts1[-1]
+            df = df[(df["Time (s)"] >= time_min) & (df["Time (s)"] <= time_max)]
+            
+            self.impedance_timestamps = df["Time (s)"].to_numpy()
+            self.impedance_rate = df[" Impedance (bpm)"].to_numpy()
+            self.has_impedance = True
+        else:
+            self.has_impedance = False
+            
+    
     def PCA_respiratory_signal_resp(self):
         # Bandpass filter signal followed by timeseries PCA using Hankel matrix
         butter = MeerkatPipelineHelperfunctions.butter_bandpass(
@@ -1905,7 +1944,27 @@ class RespiratoryPipeline:
             self.ventilator_rate_windowed_values.append(
                 np.mean(self.ventilator_rate[result_r[0] : result_r[-1]])
             )
-
+    def impedance_rate_in_window(self):
+        imp_time_start = self.impedance_timestamps[0]
+        imp_time_end = self.impedance_timestamps[-1]
+        self.impedance_rate_windowed_values = []
+        self.timestamps_impedance_windowed_values = []
+        # Iterate over signal to bin values and average them
+        for i in range(int(imp_time_end - imp_time_start)):
+            
+            window_start_r = imp_time_start + i
+            window_end_r = imp_time_start + i + int(self.intervall_length_resp / 30)
+            self.timestamps_impedance_windowed_values.append(window_end_r)
+            result_r = np.where(
+                np.logical_and(
+                    self.impedance_timestamps >= window_start_r,
+                    self.impedance_timestamps <= window_end_r,
+                )
+            )[0]
+            self.impedance_rate_windowed_values.append(
+                np.mean(self.impedance_rate[result_r[0] : result_r[-1]])
+            )
+            
     def ventilator_volume_in_window_ex_in(self, timestamps, volumes_in, volumes_ex):
         # Evaluate ventilator volumes in sliding window of same length as the volumes obtained from the camera
 
@@ -1966,7 +2025,9 @@ class RespiratoryPipeline:
             label="Camera",
             color=colors[1],
         )
-
+        #Print summary:
+        print("Mean tidal volume: {}".format(np.mean(self.intervall_volumes)))
+        
         ax1.set_xlabel("Time (min)", fontsize=20)
         ax1.set_ylabel("Tidal volume (ml)", fontsize=20)
         ax1.set_ylim(2, 9)
@@ -1980,6 +2041,13 @@ class RespiratoryPipeline:
                 self.ventilator_rate_windowed_values,
                 color=colors[0],
                 label="Ventilator",
+            )
+        if self.has_impedance:
+            ax2.plot(
+                np.array(self.timestamps_impedance_windowed_values) / 60,
+                self.impedance_rate_windowed_values,
+                color=colors[2],
+                label="Impedance",
             )
         # Plot camera respiratory rate
         ax2.plot(
@@ -2000,14 +2068,8 @@ class RespiratoryPipeline:
     def resp_plot_params(self, ax):
         MeerkatPipelineHelperfunctions.plot_prettifier(ax)
         ax.legend(loc="upper right", frameon=False, fontsize=14)
-
-    def statistical_analysis(self):
-        """
-        Perform statistical analysis for different measurement and estimation techniques.
-        """
-
-        # Define a helper function to run statistical analysis
-        def run_analysis(
+    # Define a helper function to run statistical analysis
+    def run_analysis(self,
             vital_sign,
             ground_truth_signal,
             ground_truth_timestamps,
@@ -2026,9 +2088,16 @@ class RespiratoryPipeline:
             for key, value in kwargs.items():
                 setattr(analysis, key, value)
             analysis.run()
+            
+    def statistical_analysis(self):
+        """
+        Perform statistical analysis for different measurement and estimation techniques.
+        """
+
+        
 
         # Perform Fourier analysis
-        run_analysis(
+        self.run_analysis(
             vital_sign="Resp_Fourier",
             ground_truth_signal=self.ventilator_rate_windowed_values,
             ground_truth_timestamps=self.timestamps_ventilator_volume_windowed_values,
@@ -2037,7 +2106,7 @@ class RespiratoryPipeline:
         )
 
         # Perform Resp Peak counting
-        run_analysis(
+        self.run_analysis(
             vital_sign="Resp_Peak_counting",
             ground_truth_signal=self.ventilator_rate_windowed_values,
             ground_truth_timestamps=self.timestamps_ventilator_volume_windowed_values,
@@ -2046,7 +2115,7 @@ class RespiratoryPipeline:
         )
 
         # Perform Tidal volume best estimate
-        run_analysis(
+        self.run_analysis(
             vital_sign="Tidal_volume",
             ground_truth_signal=self.ventilator_volume_windowed_values,
             ground_truth_timestamps=self.timestamps_ventilator_volume_windowed_values,
@@ -2055,7 +2124,7 @@ class RespiratoryPipeline:
         )
 
         # Perform Tidal volume upper lower analysis
-        run_analysis(
+        self.run_analysis(
             vital_sign="Tidal_volume_upper_lower",
             ground_truth_timestamps=self.time_in_w,
             reference_signal=self.intervall_volumes,
@@ -2065,6 +2134,23 @@ class RespiratoryPipeline:
             tidalvolumelower=self.v_in_w,
             tidalvolumeflag=True,
         )
+    def statistical_analysis_impedance(self):
+        self.run_analysis(
+            vital_sign="Impedance_Rate",
+            ground_truth_signal=self.impedance_rate_windowed_values,
+            ground_truth_timestamps=self.timestamps_impedance_windowed_values,
+            reference_signal=self.kalman_breathing_rate,
+            reference_timestamps=self.timestamps_intervalls_rate,
+        )
+        # Perform Resp Peak counting
+        self.run_analysis(
+            vital_sign="Impedance_Peak_counting",
+            ground_truth_signal=self.impedance_rate_windowed_values,
+            ground_truth_timestamps=self.timestamps_impedance_windowed_values,
+            reference_signal=self.kalman_breathing_rate_peaks,
+            reference_timestamps=self.timestamps_intervalls_vol,
+        )
+        
 
     def return_data(self):
         """
@@ -2084,18 +2170,46 @@ class RespiratoryPipeline:
         """
 
         # Create a dictionary with all the relevant data
-        data = {
-            "Timestamps Ventilator Volume Windowed Values": self.timestamps_ventilator_volume_windowed_values,
-            "Ventilator Volume Windowed Values": self.ventilator_volume_windowed_values,
-            "Ventilator Rate Windowed Values": self.ventilator_rate_windowed_values,
-            "Time in W": self.time_in_w,
-            "V In W": self.v_in_w,
-            "V Ex W": self.v_ex_w,
-            "Timestamps Intervals Volume": self.timestamps_intervalls_vol,
-            "Interval Volumes": self.intervall_volumes,
-            "Timestamps Intervals Rate": self.timestamps_intervalls_rate,
-            "Kalman Breathing Rate": self.kalman_breathing_rate,
-            "Kalman Breathing Rate Peaks": self.kalman_breathing_rate_peaks,
-        }
+        data = {}
+
+        if hasattr(self, 'timestamps_ventilator_volume_windowed_values'):
+            data["Timestamps Ventilator Volume Windowed Values"] = self.timestamps_ventilator_volume_windowed_values
+
+        if hasattr(self, 'ventilator_volume_windowed_values'):
+            data["Ventilator Volume Windowed Values"] = self.ventilator_volume_windowed_values
+
+        if hasattr(self, 'ventilator_rate_windowed_values'):
+            data["Ventilator Rate Windowed Values"] = self.ventilator_rate_windowed_values
+
+        if hasattr(self, 'time_in_w'):
+            data["Time in W"] = self.time_in_w
+
+        if hasattr(self, 'v_in_w'):
+            data["V In W"] = self.v_in_w
+
+        if hasattr(self, 'v_ex_w'):
+            data["V Ex W"] = self.v_ex_w
+
+        if hasattr(self, 'timestamps_intervalls_vol'):
+            data["Timestamps Intervals Volume"] = self.timestamps_intervalls_vol
+
+        if hasattr(self, 'intervall_volumes'):
+            data["Interval Volumes"] = self.intervall_volumes
+
+        if hasattr(self, 'timestamps_intervalls_rate'):
+            data["Timestamps Intervals Rate"] = self.timestamps_intervalls_rate
+
+        if hasattr(self, 'kalman_breathing_rate'):
+            data["Kalman Breathing Rate"] = self.kalman_breathing_rate
+
+        if hasattr(self, 'kalman_breathing_rate_peaks'):
+            data["Kalman Breathing Rate Peaks"] = self.kalman_breathing_rate_peaks
+
+        if hasattr(self, 'impedance_rate_windowed_values'):
+            data["Impedance Rate Windowed Values"] = self.impedance_rate_windowed_values
+
+        if hasattr(self, 'timestamps_impedance_windowed_values'):
+            data["Timestamps Impedance Windowed Values"] = self.timestamps_impedance_windowed_values
+
 
         return data

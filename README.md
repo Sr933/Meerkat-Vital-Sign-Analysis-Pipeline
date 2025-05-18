@@ -24,7 +24,7 @@ Empty folder indicate unavailable/invalid signals.
 * ventiliser (version 1.0.0)
 * Matplotlib (version 3.8.0)
 * seaborn (version 0.13.0) 
-
+* pandas (version 1.5.3) 
 
 
 
